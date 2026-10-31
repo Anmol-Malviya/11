@@ -2,70 +2,41 @@
 
 import React, { useRef, useEffect, useState, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { Camera, CameraOff, Smartphone, RefreshCw, CheckCircle2, AlertCircle, FlipHorizontal } from "lucide-react";
-import { gestureApi, GesturePrediction } from "@/lib/gestureApi";
+import { Camera, CameraOff, Smartphone, FlipHorizontal, Key, CheckCircle2, AlertCircle } from "lucide-react";
+import { gestureApi } from "@/lib/gestureApi";
 
 function RemoteCameraClient() {
   const searchParams = useSearchParams();
-  const sessionId = searchParams.get("session") || "default_session";
+  const initialToken = searchParams.get("token") || searchParams.get("session") || "";
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
 
+  const [tokenInput, setTokenInput] = useState(initialToken);
+  const [activeToken, setActiveToken] = useState(initialToken);
   const [isStreaming, setIsStreaming] = useState(false);
   const [facingMode, setFacingMode] = useState<"user" | "environment">("user");
-  const [statusMessage, setStatusMessage] = useState("Connecting to laptop session...");
+  const [statusMessage, setStatusMessage] = useState(initialToken ? `Token: ${initialToken}` : "Enter 6-digit token or scan QR");
   const [detectedGesture, setDetectedGesture] = useState<string>("blank");
   const [confidence, setConfidence] = useState<number>(0);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const isProcessingRef = useRef(false);
 
-  // Initialize WebSocket connection to backend
+  // Register session when token is active
   useEffect(() => {
-    let wsUrl = "";
-    if (typeof window !== "undefined") {
-      const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-      // Connect to same host or configured backend
-      if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
-        wsUrl = `${proto}//${window.location.hostname}:8000/ws/remote-camera/${sessionId}`;
-      } else {
-        wsUrl = `${proto}//${window.location.host}/ws/remote-camera/${sessionId}`;
-      }
+    if (activeToken) {
+      fetch(`/api/remote-camera/session/${activeToken}/register?role=phone`, { method: "POST" })
+        .then(() => setStatusMessage(`Paired with Token: ${activeToken}`))
+        .catch(() => {});
     }
-
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      setStatusMessage("Paired with Laptop!");
-      ws.send(JSON.stringify({ role: "phone" }));
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === "STATUS") {
-          setStatusMessage(data.message);
-        }
-      } catch (e) {}
-    };
-
-    ws.onerror = () => {
-      setStatusMessage("Connection error with backend.");
-    };
-
-    ws.onclose = () => {
-      setStatusMessage("Disconnected from laptop.");
-    };
-
-    return () => {
-      ws.close();
-    };
-  }, [sessionId]);
+  }, [activeToken]);
 
   // Start mobile camera
   const startCamera = async (mode = facingMode) => {
+    if (!activeToken) {
+      setErrorMsg("Please enter a valid 6-digit pairing token first.");
+      return;
+    }
     setErrorMsg(null);
     try {
       if (videoRef.current && videoRef.current.srcObject) {
@@ -86,10 +57,10 @@ function RemoteCameraClient() {
         videoRef.current.play();
       }
       setIsStreaming(true);
-      setStatusMessage("Camera live! Point at your hand gestures.");
+      setStatusMessage(`Streaming to laptop with token: ${activeToken}`);
     } catch (err: any) {
       console.error("Camera access failed:", err);
-      setErrorMsg("Camera permission denied or camera not found on this phone.");
+      setErrorMsg("Camera permission denied. Please allow camera permissions on this device.");
       setIsStreaming(false);
     }
   };
@@ -109,9 +80,9 @@ function RemoteCameraClient() {
     startCamera(nextMode);
   };
 
-  // Continuous frame capture loop
+  // Continuous frame capture loop using HTTP POST token endpoint
   const captureAndSend = useCallback(async () => {
-    if (!videoRef.current || !canvasRef.current || isProcessingRef.current || !isStreaming) return;
+    if (!videoRef.current || !canvasRef.current || isProcessingRef.current || !isStreaming || !activeToken) return;
     const video = videoRef.current;
     if (video.videoWidth === 0 || video.videoHeight === 0) return;
 
@@ -126,29 +97,30 @@ function RemoteCameraClient() {
 
     isProcessingRef.current = true;
     try {
-      // 1. Run CNN model prediction on backend
+      // 1. Run CNN model prediction
       const pred = await gestureApi.predictGesture(b64, 0.60);
       setDetectedGesture(pred.predicted_gesture);
       setConfidence(pred.confidence);
 
-      // 2. Stream remote frame & prediction to laptop over WebSocket
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({
-          type: "FRAME",
+      // 2. Push frame and prediction to token session via HTTP POST (Zero Wi-Fi dependence)
+      await fetch(`/api/remote-camera/session/${activeToken}/frame`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           image: b64,
           prediction: pred
-        }));
-      }
+        })
+      });
     } catch (err) {
-      console.error("Inference or stream error:", err);
+      console.error("Frame push error:", err);
     } finally {
       isProcessingRef.current = false;
     }
-  }, [isStreaming]);
+  }, [isStreaming, activeToken]);
 
   useEffect(() => {
     let interval: any = null;
-    if (isStreaming) {
+    if (isStreaming && activeToken) {
       interval = setInterval(() => {
         captureAndSend();
       }, 250); // 4 FPS
@@ -156,7 +128,7 @@ function RemoteCameraClient() {
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [isStreaming, captureAndSend]);
+  }, [isStreaming, activeToken, captureAndSend]);
 
   return (
     <div className="min-h-screen bg-slate-950 text-white flex flex-col p-4 max-w-md mx-auto">
@@ -168,11 +140,13 @@ function RemoteCameraClient() {
           </div>
           <div>
             <h1 className="text-sm font-bold leading-tight">Phone Camera Node</h1>
-            <span className="text-[10px] text-slate-400 font-mono">Session: {sessionId.slice(0, 8)}...</span>
+            <span className="text-[10px] text-slate-400 font-mono">
+              Token Mode (Mobile Data / Cloud)
+            </span>
           </div>
         </div>
 
-        <div className="flex items-center space-x-2">
+        {isStreaming && (
           <button
             onClick={flipCamera}
             className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300"
@@ -180,11 +154,41 @@ function RemoteCameraClient() {
           >
             <FlipHorizontal className="w-4 h-4" />
           </button>
+        )}
+      </div>
+
+      {/* Token Input Bar */}
+      <div className="my-3 p-3 rounded-2xl bg-slate-900 border border-slate-800 space-y-2">
+        <label className="text-[11px] font-semibold text-slate-400 block uppercase font-mono">
+          Pairing Token:
+        </label>
+        <div className="flex items-center space-x-2">
+          <div className="relative flex-1">
+            <Key className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3" />
+            <input
+              type="text"
+              value={tokenInput}
+              onChange={(e) => setTokenInput(e.target.value.toUpperCase())}
+              placeholder="e.g. 7X9K2P"
+              maxLength={8}
+              className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm font-mono tracking-widest uppercase focus:border-indigo-500 focus:outline-none"
+            />
+          </div>
+          <button
+            onClick={() => {
+              if (tokenInput.trim()) {
+                setActiveToken(tokenInput.trim());
+              }
+            }}
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-xs font-bold transition active:scale-95"
+          >
+            Pair
+          </button>
         </div>
       </div>
 
       {/* Camera Viewport */}
-      <div className="relative aspect-4/3 w-full rounded-3xl bg-black overflow-hidden my-4 border border-slate-800 flex items-center justify-center">
+      <div className="relative aspect-4/3 w-full rounded-3xl bg-black overflow-hidden my-2 border border-slate-800 flex items-center justify-center">
         <video
           ref={videoRef}
           playsInline
@@ -210,7 +214,7 @@ function RemoteCameraClient() {
         {!isStreaming && (
           <div className="text-center p-6 space-y-3">
             <Camera className="w-10 h-10 text-slate-500 mx-auto" />
-            <p className="text-xs text-slate-400">Tap below to turn on your phone&apos;s camera.</p>
+            <p className="text-xs text-slate-400">Pair token and tap below to activate phone camera.</p>
           </div>
         )}
 
@@ -234,7 +238,7 @@ function RemoteCameraClient() {
       </div>
 
       {/* Control Buttons */}
-      <div className="space-y-3">
+      <div className="space-y-3 pt-2">
         {!isStreaming ? (
           <button
             onClick={() => startCamera()}
@@ -268,8 +272,8 @@ function RemoteCameraClient() {
       </div>
 
       {/* Helper guide */}
-      <div className="mt-auto pt-6 text-center text-xs text-slate-500">
-        Frames and hand gestures are streamed live to your laptop screen in real time.
+      <div className="mt-auto pt-4 text-center text-xs text-slate-500">
+        Token streaming operates across mobile cellular data (4G/5G) or any separate internet network.
       </div>
     </div>
   );
@@ -282,4 +286,3 @@ export default function RemoteCameraPage() {
     </Suspense>
   );
 }
-
