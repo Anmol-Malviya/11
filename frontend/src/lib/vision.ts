@@ -17,6 +17,7 @@ export interface VisionDetectionResult {
 export class ClientVisionProcessor {
   private recognizer: GestureRecognizer | null = null;
   private isInitializing: boolean = false;
+  private lastProcessedTimestamp: number = 0;
 
   public async initializeRecognizer(): Promise<GestureRecognizer | null> {
     if (this.recognizer) return this.recognizer;
@@ -65,7 +66,8 @@ export class ClientVisionProcessor {
   }
 
   public detectForVideo(videoElement: HTMLVideoElement, timestamp: number): VisionDetectionResult {
-    if (!this.recognizer || videoElement.readyState < 2) {
+    // 1. Guard against unready video or missing recognizer
+    if (!this.recognizer || videoElement.readyState < 2 || videoElement.videoWidth === 0 || videoElement.videoHeight === 0) {
       return {
         featuresAvailable: false,
         handDetected: false,
@@ -76,8 +78,14 @@ export class ClientVisionProcessor {
       };
     }
 
+    // 2. Monotonic timestamp enforcement (MediaPipe requires strictly increasing timestamps for VIDEO mode)
+    const validTimestamp = timestamp <= this.lastProcessedTimestamp 
+      ? this.lastProcessedTimestamp + 1 
+      : timestamp;
+    this.lastProcessedTimestamp = validTimestamp;
+
     try {
-      const results = this.recognizer.recognizeForVideo(videoElement, timestamp);
+      const results = this.recognizer.recognizeForVideo(videoElement, validTimestamp);
       const gestures = results.gestures;
       const handLandmarks = results.landmarks;
 

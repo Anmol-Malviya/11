@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Shield, Volume2, Check, Trash2, Key, Sliders } from "lucide-react";
+import { Shield, Volume2, Check, Trash2, Key, Sliders, Sparkles } from "lucide-react";
 import { api, VoiceOption } from "@/lib/api";
 
 export default function SettingsPage() {
@@ -48,90 +48,81 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="max-w-3xl mx-auto py-8 space-y-8">
+    <div className="max-w-3xl mx-auto py-4 sm:py-8 space-y-6">
       <div>
-        <h1 className="text-3xl font-extrabold text-white">Voice & Privacy Settings</h1>
-        <p className="text-slate-300">
-          Control synthetic voice selection, explicit cloning consent grants, and session data retention.
+        <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+          Voice & Privacy Settings
+        </h1>
+        <p className="text-xs sm:text-sm text-slate-500 mt-1">
+          Synthetic voice models, cloning consent controls, and privacy boundaries.
         </p>
       </div>
 
       {statusMsg && (
-        <div className="p-4 bg-indigo-950/40 border border-indigo-700/60 rounded-xl text-indigo-300 text-sm">
-          {statusMsg}
+        <div className="p-3.5 bg-indigo-50 border border-indigo-200 rounded-xl text-indigo-700 text-xs sm:text-sm flex items-center space-x-2">
+          <Sparkles className="w-4 h-4 text-indigo-500 flex-shrink-0" />
+          <span>{statusMsg}</span>
         </div>
       )}
 
-      {/* Voice Selection */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-        <div className="flex items-center space-x-2">
-          <Volume2 className="w-5 h-5 text-indigo-400" />
-          <h2 className="text-lg font-bold text-white">Synthesized Output Voice</h2>
+      {/* Voice Selection Panel */}
+      <div className="glass-panel rounded-2xl p-4 sm:p-6 space-y-4">
+        <div className="flex items-center space-x-2 text-slate-800 font-bold text-sm sm:text-base border-b border-slate-100 pb-2">
+          <Volume2 className="w-4 h-4 text-indigo-600" />
+          <span>ElevenLabs Synthetic Voice</span>
         </div>
 
-        <div className="space-y-3">
-          {voices.map((v) => (
-            <div
-              key={v.voice_id}
-              onClick={() => setSelectedVoice(v.voice_id)}
-              className={`p-4 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
-                selectedVoice === v.voice_id
-                  ? "bg-indigo-600/20 border-indigo-500 text-white"
-                  : "bg-slate-800/60 border-slate-700/60 text-slate-300 hover:border-slate-600"
-              }`}
-            >
-              <div>
-                <div className="font-semibold text-sm flex items-center space-x-2">
-                  <span>{v.label}</span>
-                  <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-slate-800 border border-slate-700">
-                    {v.mode}
-                  </span>
-                </div>
-                <div className="text-xs text-slate-400 mt-1">
-                  Supported: {v.language_support.join(", ")}
-                </div>
-              </div>
-              {selectedVoice === v.voice_id && <Check className="w-5 h-5 text-indigo-400" />}
-            </div>
-          ))}
+        <div className="space-y-2">
+          <label className="text-xs font-semibold text-slate-600">Select Voice Profile</label>
+          <select
+            value={selectedVoice}
+            onChange={(e) => setSelectedVoice(e.target.value)}
+            className="w-full text-xs sm:text-sm bg-white border border-slate-200/90 text-slate-800 rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+          >
+            {voices.map((v) => (
+              <option key={v.voice_id} value={v.voice_id}>
+                {v.label} ({v.mode})
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
-      {/* Voice Cloning Consent Controls (SRC-07 / FR-013) */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-        <div className="flex items-center space-x-2">
-          <Shield className="w-5 h-5 text-emerald-400" />
-          <h2 className="text-lg font-bold text-white">Voice Cloning Consent Gate</h2>
+      {/* Consent & Ethics Panel */}
+      <div className="glass-panel rounded-2xl p-4 sm:p-6 space-y-4">
+        <div className="flex items-center space-x-2 text-slate-800 font-bold text-sm sm:text-base border-b border-slate-100 pb-2">
+          <Shield className="w-4 h-4 text-indigo-600" />
+          <span>Explicit Voice Cloning Consent</span>
         </div>
-        <p className="text-sm text-slate-300">
-          Cloned or personalized voice models strictly require active, revocable consent before speech generation can occur.
+
+        <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+          In compliance with ethical AI requirements, cloning the patient's pre-recorded or restored voice requires explicit affirmative consent. Consent may be revoked anytime to immediately block synthesis.
         </p>
 
-        <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between">
-          <div>
-            <div className="text-sm font-semibold text-white">Cloning Consent Status</div>
-            <div className="text-xs text-slate-400">
-              {consentGranted ? "Active (Granted for this browser session)" : "Revoked / Not Granted"}
-            </div>
-          </div>
-          {consentGranted ? (
+        <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          {!consentGranted ? (
             <button
-              onClick={handleRevokeConsent}
-              className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 font-semibold text-xs text-white transition-colors"
+              onClick={handleGrantConsent}
+              className="flex items-center justify-center space-x-1.5 px-4 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-sky-600 hover:from-indigo-700 hover:to-sky-700 text-white font-semibold text-xs shadow-xs transition-all active:scale-95"
             >
-              Revoke Consent
+              <Check className="w-4 h-4" />
+              <span>Grant Affirmative Consent</span>
             </button>
           ) : (
             <button
-              onClick={handleGrantConsent}
-              className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-semibold text-xs text-white transition-colors"
+              onClick={handleRevokeConsent}
+              className="flex items-center justify-center space-x-1.5 px-4 py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-semibold text-xs transition-all active:scale-95"
             >
-              Grant Explicit Consent
+              <Trash2 className="w-4 h-4 text-rose-600" />
+              <span>Revoke Consent & Block Clone</span>
             </button>
           )}
+
+          <span className="text-[11px] text-slate-400 self-center">
+            Status: <strong className={consentGranted ? "text-emerald-600" : "text-amber-600"}>{consentGranted ? "Consented (Active)" : "Default System Voice Only"}</strong>
+          </span>
         </div>
       </div>
     </div>
   );
 }
-
