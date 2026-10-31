@@ -243,3 +243,16 @@ async def speak_gesture_message(request: Request):
         media_type="audio/mpeg",
         headers={"Content-Disposition": "inline; filename=speech.mp3"}
     )
+
+
+# 12. POST /api/lip-reading/predict
+@router.post("/lip-reading/predict")
+async def predict_lip_reading(request: Request):
+    """Analyzes temporal sequence of lip landmarks and predicts spoken words/candidate sentences."""
+    body = await request.json()
+    lar_seq = body.get("lar_sequence", [])
+    if not lar_seq:
+        raise HTTPException(status_code=400, detail="lar_sequence array is required")
+    from app.services.lip_reading_service import lip_reading_service
+    result = lip_reading_service.analyze_temporal_sequence(lar_seq)
+    return result.dict()

@@ -1,3 +1,15 @@
+
+export interface LipReadingResponse {
+  status: "speaking" | "resting" | "unclear_input" | "low_visibility";
+  confidence: number;
+  visemes_detected: string[];
+  predicted_words: string[];
+  suggested_phrases: string[];
+  mouth_open_ratio: number;
+  temporal_variance: number;
+  lip_aspect_ratio: number;
+}
+
 // AI Manthan 2.0 Gesture & Conversation Types & Client
 
 export interface GestureHealth {
@@ -188,5 +200,15 @@ export const gestureApi = {
     });
     if (!res.ok) throw new Error("Failed to synthesize speech via ElevenLabs");
     return res.blob();
-  }
+  },
+
+  async predictLipReading(larSequence: number[]): Promise<LipReadingResponse> {
+    const res = await fetch(`${API_ROOT}/api/lip-reading/predict`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lar_sequence: larSequence })
+    });
+    if (!res.ok) throw new Error("Lip reading prediction failed");
+    return res.json();
+  },
 };

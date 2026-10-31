@@ -49,6 +49,7 @@ export default function ConversationPage() {
   const [partnerInput, setPartnerInput] = useState("");
   const [currentGesture, setCurrentGesture] = useState("unknown");
   const [lipActive, setLipActive] = useState(false);
+  const [lastLipReading, setLastLipReading] = useState<string>("");
   const [candidates, setCandidates] = useState<CandidateReply[]>([]);
   const [needsClarification, setNeedsClarification] = useState(false);
   const [currentInferenceId, setCurrentInferenceId] = useState("");
@@ -210,6 +211,12 @@ export default function ConversationPage() {
     triggerInference(lastPartnerMsg, currentGesture, active);
   };
 
+  const handleLipReadingPredicted = (result: any) => {
+    if (result.suggested_phrases && result.suggested_phrases.length > 0) {
+      setLastLipReading(result.suggested_phrases[0]);
+    }
+  };
+
   const handleConfirmReply = async (candidateId?: string, editedText?: string) => {
     if (!currentInferenceId) return;
     setIsGeneratingAudio(true);
@@ -329,6 +336,7 @@ export default function ConversationPage() {
           <CameraLandmarkFeed
             onGestureDetected={handleGestureChange}
             onLipActivityDetected={handleLipChange}
+            onLipReadingPredicted={handleLipReadingPredicted}
           />
 
           {/* Dialogue Thread */}
