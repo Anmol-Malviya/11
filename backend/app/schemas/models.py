@@ -77,6 +77,8 @@ class InferenceRequest(BaseModel):
     raw_transcript_text: Optional[str] = None
     detected_gesture: Optional[str] = None
     lip_active: Optional[bool] = None
+    lip_reading_words: Optional[List[str]] = None
+    lip_reading_status: Optional[str] = None
 
 class InferenceResponse(BaseModel):
     inference_id: str

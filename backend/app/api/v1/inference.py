@@ -42,7 +42,9 @@ async def run_multimodal_inference(payload: InferenceRequest):
     fused_state = fusion_service.align_and_fuse(
         transcript_text=transcript_text,
         visual_features=visual_features,
-        language=payload.language or "hi-en"
+        language=payload.language or "hi-en",
+        lip_reading_words=payload.lip_reading_words or [],
+        lip_reading_status=payload.lip_reading_status or "resting"
     )
 
     # 4. Rank intent candidates via LLM/rules

@@ -10,6 +10,8 @@ interface Props {
   onConfirm: (candidateId?: string, editedText?: string) => void;
   onReject: () => void;
   isGeneratingAudio: boolean;
+  lipStatus?: string;
+  detectedVisemes?: string[];
 }
 
 export function ReplyCandidates({
@@ -18,6 +20,8 @@ export function ReplyCandidates({
   onConfirm,
   onReject,
   isGeneratingAudio,
+  lipStatus = "resting",
+  detectedVisemes = [],
 }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
@@ -62,10 +66,24 @@ export function ReplyCandidates({
     );
   }
 
+  if (lipStatus === "unclear_input") {
+    return (
+      <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 text-center space-y-2">
+        <div className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-medium">
+          <HelpCircle className="w-3.5 h-3.5" />
+          <span>Insufficient Visual Input</span>
+        </div>
+        <p className="text-xs text-slate-400 max-w-sm mx-auto">
+          Lip movement sequence was ambiguous or below articulation threshold. Please articulate naturally in front of the camera or use a hand gesture.
+        </p>
+      </div>
+    );
+  }
+
   if (!candidates || candidates.length === 0) {
     return (
       <div className="text-center py-12 glass-panel-subtle text-slate-500 text-xs sm:text-sm">
-        Waiting for conversation context or patient physical gesture...
+        Waiting for conversation context or user physical gesture / lip articulation...
       </div>
     );
   }

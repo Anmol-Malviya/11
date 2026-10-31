@@ -16,7 +16,9 @@ class FusionService:
         speaker: str = "partner",
         visual_features: Optional[Dict[str, Any]] = None,
         language: str = "hi-en",
-        context_history: Optional[List[Dict[str, str]]] = None
+        context_history: Optional[List[Dict[str, str]]] = None,
+        lip_reading_words: Optional[List[str]] = None,
+        lip_reading_status: Optional[str] = "resting"
     ) -> Dict[str, Any]:
         
         signals_used = []
@@ -71,8 +73,12 @@ class FusionService:
             "lip_active": lip_active,
             "signals_used": signals_used,
             "unknown_or_missing_signals": unknown_or_missing_signals,
-            "context_history": context_history or []
+            "context_history": context_history or [],
+            "lip_reading_words": lip_reading_words or [],
+            "lip_reading_status": lip_reading_status or "resting"
         }
+        if lip_reading_words and len(lip_reading_words) > 0 and lip_reading_status == "speaking":
+            signals_used.append("lip_reading_visemes")
 
         return fused_packet
 

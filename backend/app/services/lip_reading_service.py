@@ -171,3 +171,4 @@ class LipReadingService:
         )
 
 lip_reading_service = LipReadingService()
+

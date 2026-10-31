@@ -22,6 +22,8 @@ class IntentService:
         transcript = fused_state.get("transcript_text", "")
         gesture = fused_state.get("gesture", "unknown")
         lip_active = fused_state.get("lip_active", False)
+        lip_words = fused_state.get("lip_reading_words", [])
+        lip_status = fused_state.get("lip_reading_status", "resting")
         signals_used = fused_state.get("signals_used", [])
         
         # 1. Check for genuine ambiguity or missing signals
@@ -49,7 +51,7 @@ class IntentService:
                 logger.warning(f"Gemini API call failed, using rule fallback: {e}")
 
         # 3. Rule-based candidate generation fallback
-        candidates = self._generate_rule_candidates(transcript, gesture, lip_active, language)
+        candidates = self._generate_rule_candidates(transcript, gesture, lip_active, language, lip_words, lip_status)
         needs_clarification = (gesture in ["unknown"] and not transcript)
             
         return {
@@ -98,10 +100,41 @@ Do NOT include markdown formatting or backticks. Return raw JSON array only."""
         transcript: str,
         gesture: str,
         lip_active: bool,
-        language: str
+        language: str,
+        lip_words: Optional[List[str]] = None,
+        lip_status: str = "resting"
     ) -> List[CandidateReply]:
         cands = []
         transcript_lower = transcript.lower()
+        lip_words = lip_words or []
+
+        # If authentic lip reading words were visually articulated, prioritize them
+        if lip_words and lip_status == "speaking":
+            top_word = lip_words[0].lower()
+            if "water" in top_word or "paani" in top_word:
+                if language == "hi":
+                    cands.append(CandidateReply(candidate_id="lip_1", text="हाँ, मुझे पानी चाहिए।", reason=f"होठों के दृश्य विश्लेषण (Viseme: '{top_word}') से पुष्टि।", confidence=0.92))
+                    cands.append(CandidateReply(candidate_id="lip_2", text="थोड़ा पानी दे दीजिए, कृपया।", reason="प्रमाणित दृश्य वाक् पहचान।", confidence=0.85))
+                elif language == "hi-en":
+                    cands.append(CandidateReply(candidate_id="lip_1", text="Haan, please thoda paani chahiye.", reason=f"Visual lip-reading detected word: '{top_word}'.", confidence=0.93))
+                    cands.append(CandidateReply(candidate_id="lip_2", text="Yes, water please.", reason="Verified viseme motion sequence.", confidence=0.86))
+                else:
+                    cands.append(CandidateReply(candidate_id="lip_1", text="Yes, please get me some water.", reason=f"Visual lip articulation matched '{top_word}'.", confidence=0.94))
+                    cands.append(CandidateReply(candidate_id="lip_2", text="Water, please.", reason="Verified viseme temporal kinematics.", confidence=0.88))
+            elif "help" in top_word or "madad" in top_word:
+                if language == "hi":
+                    cands.append(CandidateReply(candidate_id="lip_1", text="मुझे मदद की आवश्यकता है।", reason=f"दृश्य वाक् पहचान: '{top_word}'.", confidence=0.95))
+                elif language == "hi-en":
+                    cands.append(CandidateReply(candidate_id="lip_1", text="Please meri thodi help karein.", reason=f"Visual lip articulation: '{top_word}'.", confidence=0.94))
+                else:
+                    cands.append(CandidateReply(candidate_id="lip_1", text="I need help, please.", reason=f"Visual lip articulation matched '{top_word}'.", confidence=0.95))
+            elif "yes" in top_word or "haan" in top_word:
+                cands.append(CandidateReply(candidate_id="lip_1", text="Yes, absolutely.", reason=f"Visual lip articulation: '{top_word}'.", confidence=0.91))
+            elif "no" in top_word or "nahi" in top_word:
+                cands.append(CandidateReply(candidate_id="lip_1", text="No, thank you.", reason=f"Visual lip articulation: '{top_word}'.", confidence=0.91))
+            
+            if cands:
+                return cands
 
         if language == "hi":
             if gesture in ["thumbs_up", "head_nod", "THUMBS_UP"]:

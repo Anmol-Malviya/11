@@ -50,6 +50,8 @@ export default function ConversationPage() {
   const [currentGesture, setCurrentGesture] = useState("unknown");
   const [lipActive, setLipActive] = useState(false);
   const [lastLipReading, setLastLipReading] = useState<string>("");
+  const [lipStatus, setLipStatus] = useState<string>("resting");
+  const [detectedVisemes, setDetectedVisemes] = useState<string[]>([]);
   const [candidates, setCandidates] = useState<CandidateReply[]>([]);
   const [needsClarification, setNeedsClarification] = useState(false);
   const [currentInferenceId, setCurrentInferenceId] = useState("");
@@ -67,15 +69,20 @@ export default function ConversationPage() {
     gesture: string,
     lip: boolean,
     sessId = sessionId,
-    lang = language
+    lang = language,
+    lipWords: string[] = [],
+    curLipStatus = "resting"
   ) => {
     try {
+      const wordsToPass = lipWords.length > 0 ? lipWords : (lastLipReading ? [lastLipReading] : []);
       const res = await api.runInference({
         session_id: sessId,
         raw_transcript_text: transcript,
         detected_gesture: gesture,
         lip_active: lip,
         language: lang,
+        lip_reading_words: wordsToPass,
+        lip_reading_status: curLipStatus || lipStatus,
       });
       setCandidates(res.candidates);
       setNeedsClarification(res.needs_clarification);
@@ -212,8 +219,24 @@ export default function ConversationPage() {
   };
 
   const handleLipReadingPredicted = (result: any) => {
-    if (result.suggested_phrases && result.suggested_phrases.length > 0) {
-      setLastLipReading(result.suggested_phrases[0]);
+    if (result.status) {
+      setLipStatus(result.status);
+    }
+    if (result.visemes_detected) {
+      setDetectedVisemes(result.visemes_detected);
+    }
+    if (result.predicted_words && result.predicted_words.length > 0) {
+      setLastLipReading(result.predicted_words[0]);
+      const lastPartnerMsg = [...messages].reverse().find((m) => m.speaker === "partner")?.text || "";
+      triggerInference(
+        lastPartnerMsg, 
+        currentGesture, 
+        lipActive, 
+        sessionId, 
+        language, 
+        result.predicted_words, 
+        result.status
+      );
     }
   };
 
@@ -434,6 +457,8 @@ export default function ConversationPage() {
               onConfirm={handleConfirmReply}
               onReject={handleReject}
               isGeneratingAudio={isGeneratingAudio}
+              lipStatus={lipStatus}
+              detectedVisemes={detectedVisemes}
             />
           </div>
         </div>

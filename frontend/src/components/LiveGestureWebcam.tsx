@@ -175,9 +175,13 @@ export function LiveGestureWebcam({
     ctx.scale(-1, 1);
     ctx.translate(-width, 0);
 
-    // Draw connection lines
+    // Green hand skeleton glow effect
+    ctx.shadowColor = "rgba(34, 197, 94, 0.35)";
+    ctx.shadowBlur = 8;
+
+    // Draw connection lines with primary green
     ctx.lineWidth = 3;
-    ctx.strokeStyle = "rgba(59, 130, 246, 0.85)"; // Blue accent
+    ctx.strokeStyle = "#22C55E"; // Green #22C55E
     ctx.lineCap = "round";
 
     for (const [startIdx, endIdx] of HAND_CONNECTIONS) {
@@ -191,17 +195,21 @@ export function LiveGestureWebcam({
       }
     }
 
-    // Draw landmark joints
+    // Reset shadow for joints
+    ctx.shadowBlur = 0;
+
+    // Draw landmark joints with green palette
     for (let i = 0; i < landmarks.length; i++) {
       const p = landmarks[i];
       ctx.beginPath();
       ctx.arc(p.x * width, p.y * height, i % 4 === 0 ? 5 : 3.5, 0, 2 * Math.PI);
+      // Fingertips: vibrant primary green, intermediate knuckles: deep secondary green
       ctx.fillStyle = i === 4 || i === 8 || i === 12 || i === 16 || i === 20 
-        ? "rgb(239, 68, 68)" // Fingertips in coral red
-        : "rgb(255, 255, 255)";
+        ? "#22C55E" 
+        : "#16A34A";
       ctx.fill();
       ctx.lineWidth = 1.5;
-      ctx.strokeStyle = "rgb(15, 23, 42)";
+      ctx.strokeStyle = "#052e16"; // Dark emerald border for crisp contrast
       ctx.stroke();
     }
 
@@ -425,25 +433,39 @@ export function LiveGestureWebcam({
         {/* Real-Time Gesture HUD Overlay */}
         {isCameraActive && (
           <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between pointer-events-none">
-            <div className="bg-slate-900/90 backdrop-blur-md border border-slate-700/80 px-3.5 py-2 rounded-xl flex items-center space-x-3 text-xs shadow-lg">
+            <div className={`backdrop-blur-md px-3.5 py-2 rounded-xl flex items-center space-x-3 text-xs shadow-lg transition-colors border ${
+              handPresent 
+                ? "bg-slate-950/90 border-emerald-500/40" 
+                : "bg-slate-900/90 border-slate-700/80"
+            }`}>
               <div>
-                <span className="text-slate-400 block text-[10px] uppercase font-mono">
+                <span className={`block text-[10px] uppercase font-mono ${handPresent ? "text-emerald-400 font-semibold" : "text-slate-400"}`}>
                   {handPresent ? `${handedness} Hand` : "Hand Detector"}
                 </span>
-                <span className="font-bold text-white text-sm">
-                  {activeGesture !== "NO_GESTURE" ? activeGesture.replace("_", " ") : "NO_GESTURE"}
+                <span className={`font-bold text-sm ${handPresent && activeGesture !== "NO_GESTURE" ? "text-emerald-300" : "text-white"}`}>
+                  {handPresent && activeGesture !== "NO_GESTURE" ? activeGesture.replace("_", " ") : (handPresent ? "DETECTING..." : "NO_GESTURE")}
                 </span>
               </div>
               <div className="border-l border-slate-700 pl-3">
                 <span className="text-slate-400 block text-[10px] uppercase font-mono">Confidence</span>
-                <span className={`font-mono font-bold ${activeConfidence >= confidenceThreshold ? "text-emerald-400" : "text-amber-400"}`}>
-                  {(activeConfidence * 100).toFixed(1)}%
+                <span className={`font-mono font-bold ${
+                  !handPresent 
+                    ? "text-slate-500" 
+                    : activeConfidence >= confidenceThreshold 
+                      ? "text-emerald-400" 
+                      : "text-amber-400"
+                }`}>
+                  {handPresent ? `${(activeConfidence * 100).toFixed(1)}%` : "0.0%"}
                 </span>
               </div>
             </div>
 
-            <div className="bg-slate-900/90 backdrop-blur-md border border-slate-700/80 px-3 py-1.5 rounded-xl text-[11px] text-slate-300 flex items-center space-x-2">
-              <span className={`w-2 h-2 rounded-full ${handPresent ? "bg-emerald-400" : "bg-slate-500"}`} />
+            <div className={`backdrop-blur-md px-3 py-1.5 rounded-xl text-[11px] flex items-center space-x-2 border transition-colors ${
+              handPresent 
+                ? "bg-emerald-950/80 border-emerald-500/50 text-emerald-300" 
+                : "bg-slate-900/90 border-slate-700/80 text-slate-400"
+            }`}>
+              <span className={`w-2 h-2 rounded-full ${handPresent ? "bg-emerald-400 animate-pulse" : "bg-slate-500"}`} />
               <span>{handPresent ? "Hand Tracked" : "No Hand in Frame"}</span>
             </div>
           </div>
@@ -464,13 +486,13 @@ export function LiveGestureWebcam({
           "CROSSED_FINGERS",
           "ONE_FINGER_UP"
         ].map((label) => {
-          const isCurrent = activeGesture === label;
+          const isCurrent = handPresent && activeGesture === label;
           return (
             <span
               key={label}
               className={`px-2 py-0.5 rounded-md font-mono text-[10px] uppercase transition-all ${
                 isCurrent
-                  ? "bg-blue-600 text-white shadow-sm ring-1 ring-blue-400 font-bold"
+                  ? "bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-400 font-bold"
                   : "bg-slate-800/80 text-slate-400"
               }`}
             >

@@ -132,6 +132,8 @@ export const api = {
     detected_gesture?: string;
     lip_active?: boolean;
     language?: string;
+    lip_reading_words?: string[];
+    lip_reading_status?: string;
   }): Promise<InferenceResponse> {
     const res = await fetch(`${API_BASE}/inference`, {
       method: "POST",
