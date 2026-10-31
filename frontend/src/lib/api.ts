@@ -1,6 +1,22 @@
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL ||
-  (typeof window !== "undefined" ? `${window.location.origin}/api/v1` : "http://localhost:8000/api/v1");
+const getApiBase = () => {
+  // 1. In server functions / SSR, use Vercel service binding if provided
+  if (process.env.BACKEND_URL) {
+    return `${process.env.BACKEND_URL.replace(/\/$/, "")}/api/v1`;
+  }
+  // 2. Explicit public environment variable override
+  if (process.env.NEXT_PUBLIC_API_BASE_URL) {
+    return process.env.NEXT_PUBLIC_API_BASE_URL;
+  }
+  // 3. Client-side browser execution (relative to current domain)
+  if (typeof window !== "undefined") {
+    return `${window.location.origin}/api/v1`;
+  }
+  // 4. Fallback for local development
+  return "http://localhost:8000/api/v1";
+};
+
+const API_BASE = getApiBase();
+
 
 
 export interface SessionResponse {
