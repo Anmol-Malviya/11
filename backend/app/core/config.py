@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     
     LLM_API_KEY: Optional[str] = None
     LLM_MODEL: str = "gemini-1.5-flash"
+    GROQ_API_KEY: Optional[str] = None
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
     
     # Latency & Limits
     MAX_AUDIO_SIZE_BYTES: int = 15 * 1024 * 1024  # 15 MB

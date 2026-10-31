@@ -1,9 +1,8 @@
 "use client";
 
-import React, { useRef, useEffect, useState, useCallback } from "react";
-import { Camera, CameraOff, RefreshCw, AlertCircle, Eye, Smartphone, QrCode } from "lucide-react";
-import { gestureApi, GesturePrediction } from "@/lib/gestureApi";
-import { visionProcessor, SupportedGesture, LandmarkPoint } from "@/lib/vision";
+import React, { useRef, useEffect, useState } from "react";
+import { Camera, CameraOff, AlertCircle, QrCode } from "lucide-react";
+import { visionProcessor, SupportedGesture, LandmarkPoint, HandTrackData } from "@/lib/vision";
 import { PhoneCameraModal } from "@/components/PhoneCameraModal";
 
 interface LiveGestureWebcamProps {
@@ -23,7 +22,6 @@ export function LiveGestureWebcam({
   phraseMapping
 }: LiveGestureWebcamProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const [cameraSource, setCameraSource] = useState<"laptop" | "phone">("laptop");
@@ -31,11 +29,14 @@ export function LiveGestureWebcam({
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [modelLoading, setModelLoading] = useState<boolean>(true);
 
-  // Stable states
+  // Dual hand tracking states
   const [activeGesture, setActiveGesture] = useState<SupportedGesture>("NO_GESTURE");
+  const [gestureType, setGestureType] = useState<"single" | "two_hand" | "none">("none");
   const [activeConfidence, setActiveConfidence] = useState<number>(0);
   const [handedness, setHandedness] = useState<string>("Unknown");
   const [handPresent, setHandPresent] = useState<boolean>(false);
+  const [leftTracked, setLeftTracked] = useState<boolean>(false);
+  const [rightTracked, setRightTracked] = useState<boolean>(false);
 
   // Phone remote camera pairing
   const [showQrModal, setShowQrModal] = useState<boolean>(false);
@@ -58,90 +59,47 @@ export function LiveGestureWebcam({
     [0, 17] // Palm base
   ];
 
-  // Initialize MediaPipe Recognizer on mount
+  // Initialize MediaPipe Models (Hand & Face)
   useEffect(() => {
     let isCancelled = false;
-    async function loadModel() {
-      setModelLoading(true);
-      await visionProcessor.initializeRecognizer();
-      if (!isCancelled) setModelLoading(false);
+    async function initModel() {
+      try {
+        await visionProcessor.initializeRecognizer();
+        if (!isCancelled) setModelLoading(false);
+      } catch (err) {
+        console.error("MediaPipe initialization error:", err);
+        if (!isCancelled) setModelLoading(false);
+      }
     }
-    loadModel();
+    initModel();
     return () => { isCancelled = true; };
   }, []);
 
-  // Generate pairing token for remote camera
-  useEffect(() => {
-    const token = Math.random().toString(36).substring(2, 8).toUpperCase();
-    setPairingToken(token);
-    fetch(`/api/remote-camera/session/${token}/register?role=laptop`, { method: "POST" }).catch(() => {});
-  }, []);
-
-  // Poll for phone frames if using phone camera
-  useEffect(() => {
-    if (!pairingToken) return;
-    let isPolling = true;
-    const pollInterval = setInterval(async () => {
-      if (!isPolling) return;
-      try {
-        const res = await fetch(`/api/remote-camera/session/${pairingToken}/poll`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.phone_connected) {
-            setIsPhoneConnected(true);
-            setCameraSource("phone");
-            stopLaptopCamera();
-            if (data.image) setRemoteFrameSrc(data.image);
-          } else {
-            setIsPhoneConnected(false);
-          }
-        }
-      } catch {}
-    }, 250);
-
-    return () => {
-      isPolling = false;
-      clearInterval(pollInterval);
-    };
-  }, [pairingToken]);
-
-  // Start laptop webcam
+  // Laptop Camera Controls
   const startLaptopCamera = async () => {
-    setCameraError(null);
-    setCameraSource("laptop");
     try {
-      if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error("Webcam access is not supported by this browser.");
-      }
+      setCameraError(null);
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          width: { ideal: 640 },
-          height: { ideal: 480 },
-          facingMode: "user"
-        },
+        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
         audio: false
       });
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.play();
+        videoRef.current.onloadedmetadata = () => {
+          videoRef.current?.play();
+          setIsCameraActive(true);
+        };
       }
-      setIsCameraActive(true);
-    } catch (err: any) {
-      console.error("Camera access error:", err);
-      if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
-        setCameraError("Camera permission denied. Click below or scan QR to use your phone camera instead!");
-      } else {
-        setCameraError(err.message || "Failed to start camera preview.");
-      }
-      setIsCameraActive(false);
+    } catch (err: unknown) {
+      console.error("Laptop camera access error:", err);
+      setCameraError("Camera permission denied or camera device in use. Please allow camera permissions.");
     }
   };
 
-  // Stop laptop webcam
   const stopLaptopCamera = () => {
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current.getTracks().forEach(t => t.stop());
       streamRef.current = null;
     }
     if (videoRef.current) {
@@ -159,8 +117,8 @@ export function LiveGestureWebcam({
     }
   };
 
-  // Draw hand skeleton landmark overlay
-  const drawLandmarks = (landmarks: LandmarkPoint[], width: number, height: number) => {
+  // Draw BOTH Left and Right Hand Skeletons with Glowing Green Outline
+  const drawDualHandLandmarks = (hands: HandTrackData[], width: number, height: number) => {
     const canvas = overlayCanvasRef.current;
     if (!canvas) return;
     canvas.width = width;
@@ -175,42 +133,57 @@ export function LiveGestureWebcam({
     ctx.scale(-1, 1);
     ctx.translate(-width, 0);
 
-    // Green hand skeleton glow effect
-    ctx.shadowColor = "rgba(34, 197, 94, 0.35)";
-    ctx.shadowBlur = 8;
+    for (const hand of hands) {
+      const landmarks = hand.landmarks;
+      if (!landmarks || landmarks.length < 21) continue;
 
-    // Draw connection lines with primary green
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = "#22C55E"; // Green #22C55E
-    ctx.lineCap = "round";
+      // Subtle Green Glow: rgba(34, 197, 94, 0.25)
+      ctx.shadowColor = "rgba(34, 197, 94, 0.35)";
+      ctx.shadowBlur = 8;
 
-    for (const [startIdx, endIdx] of HAND_CONNECTIONS) {
-      const p1 = landmarks[startIdx];
-      const p2 = landmarks[endIdx];
-      if (p1 && p2) {
+      // Draw connection lines with primary green: #22C55E
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "#22C55E";
+      ctx.lineCap = "round";
+
+      for (const [startIdx, endIdx] of HAND_CONNECTIONS) {
+        const p1 = landmarks[startIdx];
+        const p2 = landmarks[endIdx];
+        if (p1 && p2) {
+          ctx.beginPath();
+          ctx.moveTo(p1.x * width, p1.y * height);
+          ctx.lineTo(p2.x * width, p2.y * height);
+          ctx.stroke();
+        }
+      }
+
+      ctx.shadowBlur = 0;
+
+      // Draw landmark joints: Fingertips #22C55E, intermediate knuckles secondary green #16A34A
+      for (let i = 0; i < landmarks.length; i++) {
+        const p = landmarks[i];
         ctx.beginPath();
-        ctx.moveTo(p1.x * width, p1.y * height);
-        ctx.lineTo(p2.x * width, p2.y * height);
+        ctx.arc(p.x * width, p.y * height, i % 4 === 0 ? 5 : 3.5, 0, 2 * Math.PI);
+        ctx.fillStyle = i === 4 || i === 8 || i === 12 || i === 16 || i === 20 ? "#22C55E" : "#16A34A";
+        ctx.fill();
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = "#052e16";
         ctx.stroke();
       }
-    }
 
-    // Reset shadow for joints
-    ctx.shadowBlur = 0;
-
-    // Draw landmark joints with green palette
-    for (let i = 0; i < landmarks.length; i++) {
-      const p = landmarks[i];
-      ctx.beginPath();
-      ctx.arc(p.x * width, p.y * height, i % 4 === 0 ? 5 : 3.5, 0, 2 * Math.PI);
-      // Fingertips: vibrant primary green, intermediate knuckles: deep secondary green
-      ctx.fillStyle = i === 4 || i === 8 || i === 12 || i === 16 || i === 20 
-        ? "#22C55E" 
-        : "#16A34A";
-      ctx.fill();
-      ctx.lineWidth = 1.5;
-      ctx.strokeStyle = "#052e16"; // Dark emerald border for crisp contrast
-      ctx.stroke();
+      // Draw Handedness Label tag above wrist
+      const wrist = landmarks[0];
+      if (wrist) {
+        ctx.save();
+        ctx.font = "bold 11px monospace";
+        ctx.fillStyle = "#22C55E";
+        ctx.fillText(
+          `${hand.handedness.toUpperCase()} HAND`,
+          wrist.x * width - 35,
+          wrist.y * height + 24
+        );
+        ctx.restore();
+      }
     }
 
     ctx.restore();
@@ -233,9 +206,12 @@ export function LiveGestureWebcam({
 
         setHandPresent(result.handDetected);
         setHandedness(result.handedness);
+        setLeftTracked(!!result.leftHand);
+        setRightTracked(!!result.rightHand);
+        setGestureType(result.gestureType);
 
-        if (result.handDetected && result.landmarks.length > 0) {
-          drawLandmarks(result.landmarks, video.videoWidth, video.videoHeight);
+        if (result.handDetected && result.hands.length > 0) {
+          drawDualHandLandmarks(result.hands, video.videoWidth, video.videoHeight);
         } else {
           clearOverlay();
         }
@@ -274,14 +250,13 @@ export function LiveGestureWebcam({
         setActiveGesture(highestGesture);
         setActiveConfidence(avgConfidence);
 
-        // Reset triggered gesture if hand disappeared or reverted to NO_GESTURE
+        // Reset triggered gesture if hands disappeared or reverted to NO_GESTURE
         if (!result.handDetected || highestGesture === "NO_GESTURE") {
           lastTriggeredGestureRef.current = "NO_GESTURE";
         }
 
         // Stability trigger:
         // Must appear in at least 4 of 6 frames with confidence >= threshold
-        // Prevent duplicate trigger for continuous static hold
         if (
           highestGesture !== "NO_GESTURE" &&
           maxCount >= 4 &&
@@ -330,7 +305,7 @@ export function LiveGestureWebcam({
               : "Camera Standby"}
           </span>
           <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-mono">
-            {modelLoading ? "Loading MediaPipe..." : "MediaPipe Active"}
+            {modelLoading ? "Loading MediaPipe..." : "Dual Hand & Face Active"}
           </span>
         </div>
 
@@ -402,15 +377,15 @@ export function LiveGestureWebcam({
             <div>
               <p className="text-sm font-semibold text-slate-300">Webcam Inactive</p>
               <p className="text-xs text-slate-500 max-w-xs mt-1">
-                Click &ldquo;Start Webcam&rdquo; above to recognize all 10 hand gestures in real time with MediaPipe landmarks.
+                Click &ldquo;Start Webcam&rdquo; to track Left & Right hands in green with 10 single-hand and 6 two-hand gestures.
               </p>
             </div>
             <button
               onClick={startLaptopCamera}
               disabled={modelLoading}
-              className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-md transition active:scale-95 disabled:opacity-50"
+              className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-md transition active:scale-95 disabled:opacity-50"
             >
-              {modelLoading ? "Loading MediaPipe..." : "Enable Camera Now"}
+              {modelLoading ? "Loading Models..." : "Enable Camera Now"}
             </button>
           </div>
         )}
@@ -433,6 +408,7 @@ export function LiveGestureWebcam({
         {/* Real-Time Gesture HUD Overlay */}
         {isCameraActive && (
           <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between pointer-events-none">
+            {/* Gesture Label & Confidence Badge */}
             <div className={`backdrop-blur-md px-3.5 py-2 rounded-xl flex items-center space-x-3 text-xs shadow-lg transition-colors border ${
               handPresent 
                 ? "bg-slate-950/90 border-emerald-500/40" 
@@ -440,10 +416,10 @@ export function LiveGestureWebcam({
             }`}>
               <div>
                 <span className={`block text-[10px] uppercase font-mono ${handPresent ? "text-emerald-400 font-semibold" : "text-slate-400"}`}>
-                  {handPresent ? `${handedness} Hand` : "Hand Detector"}
+                  {handPresent ? (gestureType === "two_hand" ? "Two-Hand Gesture" : `${handedness} Hand`) : "Hand Detector"}
                 </span>
                 <span className={`font-bold text-sm ${handPresent && activeGesture !== "NO_GESTURE" ? "text-emerald-300" : "text-white"}`}>
-                  {handPresent && activeGesture !== "NO_GESTURE" ? activeGesture.replace("_", " ") : (handPresent ? "DETECTING..." : "NO_GESTURE")}
+                  {handPresent && activeGesture !== "NO_GESTURE" ? activeGesture.replace(/_/g, " ") : (handPresent ? "DETECTING..." : "NO_GESTURE")}
                 </span>
               </div>
               <div className="border-l border-slate-700 pl-3">
@@ -460,46 +436,97 @@ export function LiveGestureWebcam({
               </div>
             </div>
 
-            <div className={`backdrop-blur-md px-3 py-1.5 rounded-xl text-[11px] flex items-center space-x-2 border transition-colors ${
-              handPresent 
-                ? "bg-emerald-950/80 border-emerald-500/50 text-emerald-300" 
-                : "bg-slate-900/90 border-slate-700/80 text-slate-400"
-            }`}>
-              <span className={`w-2 h-2 rounded-full ${handPresent ? "bg-emerald-400 animate-pulse" : "bg-slate-500"}`} />
-              <span>{handPresent ? "Hand Tracked" : "No Hand in Frame"}</span>
+            {/* Dual Hand Tracking Indicators */}
+            <div className="flex items-center space-x-2">
+              <div className={`backdrop-blur-md px-2.5 py-1.5 rounded-xl text-[10px] font-mono border transition-colors flex items-center space-x-1.5 ${
+                leftTracked
+                  ? "bg-emerald-950/80 border-emerald-500/50 text-emerald-300"
+                  : "bg-slate-900/90 border-slate-700/80 text-slate-500"
+              }`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${leftTracked ? "bg-emerald-400 animate-pulse" : "bg-slate-600"}`} />
+                <span>LEFT HAND — {leftTracked ? "TRACKED" : "OFF"}</span>
+              </div>
+
+              <div className={`backdrop-blur-md px-2.5 py-1.5 rounded-xl text-[10px] font-mono border transition-colors flex items-center space-x-1.5 ${
+                rightTracked
+                  ? "bg-emerald-950/80 border-emerald-500/50 text-emerald-300"
+                  : "bg-slate-900/90 border-slate-700/80 text-slate-500"
+              }`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${rightTracked ? "bg-emerald-400 animate-pulse" : "bg-slate-600"}`} />
+                <span>RIGHT HAND — {rightTracked ? "TRACKED" : "OFF"}</span>
+              </div>
             </div>
           </div>
         )}
       </div>
 
-      {/* 10 Supported Gesture Legend Pills */}
-      <div className="mt-3 pt-3 border-t border-slate-800 flex flex-wrap gap-1.5 text-xs">
-        {[
-          "THUMBS_UP",
-          "THUMBS_DOWN",
-          "OPEN_PALM",
-          "CLOSED_FIST",
-          "POINTING",
-          "PEACE_SIGN",
-          "OK_SIGN",
-          "WAVE",
-          "CROSSED_FINGERS",
-          "ONE_FINGER_UP"
-        ].map((label) => {
-          const isCurrent = handPresent && activeGesture === label;
-          return (
-            <span
-              key={label}
-              className={`px-2 py-0.5 rounded-md font-mono text-[10px] uppercase transition-all ${
-                isCurrent
-                  ? "bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-400 font-bold"
-                  : "bg-slate-800/80 text-slate-400"
-              }`}
-            >
-              {label.replace("_", " ")}
-            </span>
-          );
-        })}
+      {/* Two-Hand & Single-Hand Gesture Legend Pills */}
+      <div className="mt-3 pt-3 border-t border-slate-800 space-y-2">
+        {/* Two-Hand Gestures */}
+        <div>
+          <span className="text-[10px] font-mono text-emerald-400 font-bold uppercase block mb-1">
+            Two-Hand Communication Gestures (6 Custom)
+          </span>
+          <div className="flex flex-wrap gap-1.5 text-xs">
+            {[
+              "BOTH_THUMBS_UP",
+              "BOTH_THUMBS_DOWN",
+              "HAND_HEART",
+              "PALMS_TOGETHER",
+              "BOTH_OPEN_PALMS",
+              "T_SHAPE"
+            ].map((label) => {
+              const isCurrent = handPresent && activeGesture === label;
+              return (
+                <span
+                  key={label}
+                  className={`px-2 py-0.5 rounded-md font-mono text-[10px] uppercase transition-all ${
+                    isCurrent
+                      ? "bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-400 font-bold"
+                      : "bg-emerald-950/30 border border-emerald-500/30 text-emerald-300"
+                  }`}
+                >
+                  {label.replace(/_/g, " ")}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Single-Hand Gestures */}
+        <div>
+          <span className="text-[10px] font-mono text-slate-400 font-bold uppercase block mb-1">
+            Single-Hand Postures (10 Supported)
+          </span>
+          <div className="flex flex-wrap gap-1.5 text-xs">
+            {[
+              "THUMBS_UP",
+              "THUMBS_DOWN",
+              "OPEN_PALM",
+              "CLOSED_FIST",
+              "POINTING",
+              "PEACE_SIGN",
+              "OK_SIGN",
+              "WAVE",
+              "CROSSED_FINGERS",
+              "ONE_FINGER_UP"
+            ].map((label) => {
+              const isCurrent = handPresent && activeGesture === label;
+              return (
+                <span
+                  key={label}
+                  className={`px-2 py-0.5 rounded-md font-mono text-[10px] uppercase transition-all ${
+                    isCurrent
+                      ? "bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-400 font-bold"
+                      : "bg-slate-800/80 text-slate-400"
+                  }`}
+                >
+                  {label.replace(/_/g, " ")}
+                </span>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       {/* Phone Camera QR Code Modal */}

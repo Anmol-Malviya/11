@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useRef, useEffect, useState, useCallback } from "react";
-import { Camera, CameraOff, Video, Sparkles, AlertCircle, Eye, Activity, Check, Volume2 } from "lucide-react";
-import { ClientVisionProcessor, VisionDetectionResult, SupportedGesture } from "@/lib/vision";
+import { Camera, AlertCircle, Eye, Activity, Sparkles } from "lucide-react";
+import { visionProcessor, VisionDetectionResult, SupportedGesture } from "@/lib/vision";
 import { gestureApi, LipReadingResponse } from "@/lib/gestureApi";
 
 interface Props {
@@ -10,8 +10,6 @@ interface Props {
   onLipActivityDetected?: (active: boolean) => void;
   onLipReadingPredicted?: (result: LipReadingResponse) => void;
 }
-
-const visionProcessor = new ClientVisionProcessor();
 
 export function CameraLandmarkFeed({
   onGestureDetected,
@@ -25,16 +23,18 @@ export function CameraLandmarkFeed({
   const [currentGesture, setCurrentGesture] = useState<SupportedGesture>("NO_GESTURE");
   const [confidence, setConfidence] = useState(0);
   const [handInFrame, setHandInFrame] = useState(false);
-  const [mouthOpen, setMouthOpen] = useState(false);
+  const [leftHandTracked, setLeftHandTracked] = useState(false);
+  const [rightHandTracked, setRightHandTracked] = useState(false);
   const [modelLoading, setModelLoading] = useState(true);
 
-  // Lip kinematics state & temporal buffer
+  // Real Lip kinematics state & temporal buffer from MediaPipe FaceLandmarker
   const [isLipTrackingEnabled, setIsLipTrackingEnabled] = useState(true);
   const [lipStatus, setLipStatus] = useState<string>("resting");
   const [currentLAR, setCurrentLAR] = useState<number>(0.16);
   const [lipConfidence, setLipConfidence] = useState<number>(0);
   const [predictedWords, setPredictedWords] = useState<string[]>([]);
   const [suggestedPhrases, setSuggestedPhrases] = useState<string[]>([]);
+  const [faceDetected, setFaceDetected] = useState(false);
 
   // Sliding window of Lip Aspect Ratios (LAR) across 20 frames (~1 sec)
   const larSequenceRef = useRef<number[]>([]);
@@ -67,7 +67,7 @@ export function CameraLandmarkFeed({
       } catch (err: unknown) {
         if (!isCancelled) {
           console.warn("Camera access failed or denied:", err);
-          setCameraError("Camera unavailable. You can continue with audio or touch response.");
+          setCameraError("Camera unavailable. Please grant webcam permissions.");
         }
       }
     }
@@ -82,10 +82,9 @@ export function CameraLandmarkFeed({
     };
   }, []);
 
-  // Initialize MediaPipe Model
+  // Initialize MediaPipe Models
   useEffect(() => {
     let isCancelled = false;
-
     async function loadModel() {
       setModelLoading(true);
       await visionProcessor.initializeRecognizer();
@@ -93,15 +92,13 @@ export function CameraLandmarkFeed({
         setModelLoading(false);
       }
     }
-
     loadModel();
-
     return () => {
       isCancelled = true;
     };
   }, []);
 
-  // Send temporal LAR sequence to backend lip-reading service
+  // Send real temporal LAR sequence to backend lip-reading service
   const triggerLipAnalysis = useCallback(async (sequence: number[]) => {
     try {
       const res = await gestureApi.predictLipReading(sequence);
@@ -143,6 +140,8 @@ export function CameraLandmarkFeed({
           const result: VisionDetectionResult = visionProcessor.detectForVideo(video, now);
 
           setHandInFrame(result.handDetected);
+          setLeftHandTracked(!!result.leftHand);
+          setRightHandTracked(!!result.rightHand);
 
           const detected = result.gestureLabel;
           const conf = result.confidence;
@@ -155,30 +154,36 @@ export function CameraLandmarkFeed({
             }
           }
 
-          // Lip Landmark & Aspect Ratio Extraction
+          // Authentic Lip Landmark & Aspect Ratio Extraction from MediaPipe FaceLandmarker
           if (isLipTrackingEnabled) {
-            // Calculate pseudo LAR from face or mouth motion
-            // Standard baseline resting mouth: ~0.15 - 0.20
-            // Articulating / open mouth: ~0.35 - 0.60
-            const activeRatio = result.mouthOpen ? 0.42 : (0.16 + (Math.sin(now / 400) * 0.03));
-            const calculatedLar = round(activeRatio, 3);
-            setCurrentLAR(calculatedLar);
+            const hasFace = result.lipData.faceDetected;
+            setFaceDetected(hasFace);
 
-            larSequenceRef.current.push(calculatedLar);
-            if (larSequenceRef.current.length > 20) {
-              larSequenceRef.current.shift();
-            }
+            if (hasFace && result.lipData.lipAspectRatio > 0) {
+              const realLar = result.lipData.lipAspectRatio;
+              setCurrentLAR(realLar);
 
-            // Periodically analyze temporal window every 800ms
-            if (now - lastLipAnalysisRef.current > 800 && larSequenceRef.current.length >= 10) {
-              lastLipAnalysisRef.current = now;
-              triggerLipAnalysis([...larSequenceRef.current]);
-            }
+              larSequenceRef.current.push(realLar);
+              if (larSequenceRef.current.length > 20) {
+                larSequenceRef.current.shift();
+              }
 
-            if (result.mouthOpen !== mouthOpen) {
-              setMouthOpen(result.mouthOpen);
+              // Periodically analyze temporal window every 700ms
+              if (now - lastLipAnalysisRef.current > 700 && larSequenceRef.current.length >= 8) {
+                lastLipAnalysisRef.current = now;
+                triggerLipAnalysis([...larSequenceRef.current]);
+              }
+
               if (onLipActivityDetected) {
-                onLipActivityDetected(result.mouthOpen);
+                onLipActivityDetected(result.lipData.mouthOpen);
+              }
+            } else if (!hasFace) {
+              // Face not detected in frame
+              setLipStatus("face_not_detected");
+              setLipConfidence(0);
+              larSequenceRef.current = [];
+              if (onLipActivityDetected) {
+                onLipActivityDetected(false);
               }
             }
           }
@@ -194,7 +199,7 @@ export function CameraLandmarkFeed({
       isRunning = false;
       cancelAnimationFrame(animId);
     };
-  }, [streamActive, modelLoading, currentGesture, confidence, mouthOpen, isLipTrackingEnabled, onGestureDetected, onLipActivityDetected, triggerLipAnalysis]);
+  }, [streamActive, modelLoading, currentGesture, confidence, isLipTrackingEnabled, onGestureDetected, onLipActivityDetected, triggerLipAnalysis]);
 
   return (
     <div className="glass-panel rounded-2xl overflow-hidden border border-slate-200/80 shadow-xs flex flex-col space-y-3 p-3 bg-white">
@@ -208,7 +213,7 @@ export function CameraLandmarkFeed({
           <button
             onClick={() => setIsLipTrackingEnabled(!isLipTrackingEnabled)}
             className={`px-2 py-0.5 rounded text-[10px] font-semibold transition ${
-              isLipTrackingEnabled ? "bg-blue-50 text-blue-700 border border-blue-200" : "bg-slate-100 text-slate-500"
+              isLipTrackingEnabled ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-slate-100 text-slate-500"
             }`}
           >
             {isLipTrackingEnabled ? "Lip Tracking ON" : "Lip Tracking OFF"}
@@ -235,7 +240,7 @@ export function CameraLandmarkFeed({
         {!streamActive && !cameraError && (
           <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center space-y-2 bg-slate-900 text-slate-300">
             <Camera className="w-8 h-8 text-slate-500 animate-bounce" />
-            <p className="text-xs font-medium">Starting secure local camera...</p>
+            <p className="text-xs font-medium">Starting camera...</p>
           </div>
         )}
 
@@ -252,11 +257,11 @@ export function CameraLandmarkFeed({
             <span
               className={`text-[10px] font-bold px-2 py-0.5 rounded-full shadow-xs backdrop-blur-md ${
                 currentGesture !== "NO_GESTURE"
-                  ? "bg-blue-600/90 text-white"
+                  ? "bg-emerald-600/90 text-white"
                   : "bg-black/60 text-slate-300 border border-slate-700/60"
               }`}
             >
-              {currentGesture !== "NO_GESTURE" ? `Gesture: ${currentGesture.replace("_", " ")}` : "Gesture: None"}
+              {currentGesture !== "NO_GESTURE" ? `Gesture: ${currentGesture.replace(/_/g, " ")}` : "Gesture: None"}
             </span>
 
             {isLipTrackingEnabled && (
@@ -266,11 +271,17 @@ export function CameraLandmarkFeed({
                     ? "bg-emerald-600/90 text-white animate-pulse"
                     : lipStatus === "unclear_input"
                     ? "bg-amber-600/90 text-white"
+                    : lipStatus === "face_not_detected"
+                    ? "bg-rose-600/90 text-white"
                     : "bg-black/60 text-slate-300 border border-slate-700/60"
                 }`}
               >
                 <Activity className="w-3 h-3" />
-                <span>Lip: {lipStatus.toUpperCase()} (LAR: {currentLAR.toFixed(2)})</span>
+                <span>
+                  {lipStatus === "face_not_detected" 
+                    ? "FACE NOT DETECTED" 
+                    : `Lip: ${lipStatus.toUpperCase()} (LAR: ${currentLAR.toFixed(2)})`}
+                </span>
               </span>
             )}
           </div>
@@ -297,7 +308,7 @@ export function CameraLandmarkFeed({
         <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 space-y-2 text-xs">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-1.5 text-slate-800 font-bold">
-              <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+              <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
               <span>Visual Lip Reading Prediction</span>
             </div>
             <span className="text-[11px] font-mono font-semibold text-slate-600">
@@ -312,7 +323,7 @@ export function CameraLandmarkFeed({
                 {predictedWords.map((w, idx) => (
                   <span
                     key={idx}
-                    className="px-2 py-0.5 rounded-md bg-blue-100 text-blue-800 font-bold font-mono text-[11px]"
+                    className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 font-bold font-mono text-[11px]"
                   >
                     &quot;{w}&quot;
                   </span>
@@ -338,7 +349,9 @@ export function CameraLandmarkFeed({
             </div>
           ) : (
             <div className="text-[11px] text-slate-400 italic text-center py-1">
-              {lipStatus === "unclear_input"
+              {lipStatus === "face_not_detected"
+                ? "Face not detected. Position your face in front of the camera."
+                : lipStatus === "unclear_input"
                 ? "Ambiguous lip motion. Move mouth clearly or use hand gesture."
                 : "Awaiting speech articulation or lip movements in camera region..."}
             </div>
@@ -347,15 +360,13 @@ export function CameraLandmarkFeed({
       )}
 
       {/* Footer Status Indicators */}
-      <div className="px-1 flex items-center justify-between text-[11px] text-slate-500">
-        <span>Hand in frame: <strong className={handInFrame ? "text-emerald-600" : "text-slate-400"}>{handInFrame ? "Yes" : "No"}</strong></span>
-        <span>Gesture: <strong className="text-slate-700">{currentGesture}</strong></span>
+      <div className="px-1 flex items-center justify-between text-[11px] text-slate-500 font-mono">
+        <span className="flex items-center space-x-2">
+          <span>L: <strong className={leftHandTracked ? "text-emerald-600 font-bold" : "text-slate-400"}>{leftHandTracked ? "TRACKED" : "OFF"}</strong></span>
+          <span>R: <strong className={rightHandTracked ? "text-emerald-600 font-bold" : "text-slate-400"}>{rightHandTracked ? "TRACKED" : "OFF"}</strong></span>
+        </span>
+        <span>Gesture: <strong className="text-slate-700">{currentGesture.replace(/_/g, " ")}</strong></span>
       </div>
     </div>
   );
-}
-
-function round(val: number, precision: number) {
-  const factor = Math.pow(10, precision);
-  return Math.round(val * factor) / factor;
 }

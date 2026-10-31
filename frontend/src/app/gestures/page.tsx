@@ -32,7 +32,16 @@ interface GestureMappingItem {
   meaning: string;
 }
 
-const DEFAULT_10_MAPPINGS: Record<string, GestureMappingItem> = {
+const DEFAULT_ALL_MAPPINGS: Record<string, GestureMappingItem> = {
+  // 6 Custom Two-Hand Gestures
+  BOTH_THUMBS_UP: { message: "Absolutely yes!", meaning: "Strong agreement" },
+  BOTH_THUMBS_DOWN: { message: "Absolutely not!", meaning: "Strong disagreement" },
+  HAND_HEART: { message: "I love you.", meaning: "Affection" },
+  PALMS_TOGETHER: { message: "Please.", meaning: "Request" },
+  BOTH_OPEN_PALMS: { message: "Stop immediately!", meaning: "Strong stop command" },
+  T_SHAPE: { message: "I need a break.", meaning: "Request a break" },
+  
+  // 10 Single-Hand Gestures
   THUMBS_UP: { message: "Yes, I agree.", meaning: "Okay / Yes" },
   THUMBS_DOWN: { message: "No, I don't agree.", meaning: "No" },
   OPEN_PALM: { message: "Please wait.", meaning: "Stop / Wait" },
@@ -62,7 +71,7 @@ export default function GestureAssistantPage() {
   const [confidenceThreshold, setConfidenceThreshold] = useState<number>(0.65);
 
   // Configurable 10-Gesture mapping
-  const [mappings, setMappings] = useState<Record<string, GestureMappingItem>>(DEFAULT_10_MAPPINGS);
+  const [mappings, setMappings] = useState<Record<string, GestureMappingItem>>(DEFAULT_ALL_MAPPINGS);
   const [isSavingMappings, setIsSavingMappings] = useState(false);
   const [savedSuccessMsg, setSavedSuccessMsg] = useState("");
 
@@ -439,7 +448,7 @@ export default function GestureAssistantPage() {
             <summary className="flex items-center justify-between cursor-pointer font-bold text-xs text-slate-700 uppercase tracking-wider">
               <div className="flex items-center space-x-2">
                 <SlidersHorizontal className="w-3.5 h-3.5 text-blue-600" />
-                <span>10 Configurable Gesture-to-Message Mappings</span>
+                <span>Configurable Gesture-to-Message Mappings (10 Single-Hand + 6 Two-Hand)</span>
               </div>
               <ChevronDown className="w-4 h-4 text-slate-400 group-open:rotate-180 transition-transform" />
             </summary>
