@@ -1,7 +1,17 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { Mic, MicOff, Volume2, Sparkles, RefreshCw, Send, AlertTriangle, MessageCircle, HelpCircle } from "lucide-react";
+import { 
+  Volume2, 
+  RefreshCw, 
+  Send, 
+  AlertCircle, 
+  MessageSquare, 
+  Mic, 
+  MicOff, 
+  Check, 
+  SlidersHorizontal 
+} from "lucide-react";
 import { CameraLandmarkFeed } from "@/components/CameraLandmarkFeed";
 import { ReplyCandidates } from "@/components/ReplyCandidates";
 import { api, CandidateReply } from "@/lib/api";
@@ -35,7 +45,6 @@ export default function ConversationPage() {
     },
   ]);
   const [partnerInput, setPartnerInput] = useState("");
-  const [isListening, setIsListening] = useState(false);
   const [currentGesture, setCurrentGesture] = useState("unknown");
   const [lipActive, setLipActive] = useState(false);
   const [candidates, setCandidates] = useState<CandidateReply[]>([]);
@@ -98,40 +107,37 @@ export default function ConversationPage() {
 
   const handleLipChange = (active: boolean) => {
     setLipActive(active);
-    if (active) {
-      const lastPartnerMsg = [...messages].reverse().find((m) => m.speaker === "partner")?.text || "";
-      triggerInference(lastPartnerMsg, currentGesture, true);
-    }
+    const lastPartnerMsg = [...messages].reverse().find((m) => m.speaker === "partner")?.text || "";
+    triggerInference(lastPartnerMsg, currentGesture, active);
   };
 
   const handleConfirmReply = async (candidateId?: string, editedText?: string) => {
+    if (!currentInferenceId) return;
     setIsGeneratingAudio(true);
     setAudioError("");
 
     try {
-      const action = editedText ? "edit" : "confirm";
+      const chosenText =
+        editedText ||
+        candidates.find((c) => c.candidate_id === candidateId)?.text ||
+        "Yes, thank you.";
+
+      const newMsg: Message = {
+        id: `m_${Date.now()}`,
+        speaker: "patient",
+        text: chosenText,
+        time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      };
+      setMessages((prev) => [...prev, newMsg]);
+
       const confirmation = await api.confirmReply(
         sessionId,
         currentInferenceId,
-        action,
+        editedText ? "edit" : "confirm",
         candidateId,
         editedText
       );
 
-      const confirmedText = confirmation.confirmed_text || editedText || "Acknowledged";
-
-      // Append Patient message to chat stream
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `m_${Date.now()}`,
-          speaker: "patient",
-          text: confirmedText,
-          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        },
-      ]);
-
-      // Request synthesized voice
       const audioBlob = await api.generateSpeech(sessionId, confirmation.confirmation_id);
       const audioUrl = URL.createObjectURL(audioBlob);
 
@@ -141,7 +147,15 @@ export default function ConversationPage() {
       }
     } catch (err: unknown) {
       console.error("Failed to confirm or speak:", err);
-      setAudioError("Unable to synthesize audio. Check voice permissions or network.");
+      // Fallback to native browser synthesis for high resilience
+      const chosen = editedText || candidates.find((c) => c.candidate_id === candidateId)?.text || "";
+      if (typeof window !== "undefined" && "speechSynthesis" in window && chosen) {
+        window.speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(chosen);
+        window.speechSynthesis.speak(u);
+      } else {
+        setAudioError("Unable to synthesize audio. Check voice permissions or network.");
+      }
     } finally {
       setIsGeneratingAudio(false);
     }
@@ -152,16 +166,21 @@ export default function ConversationPage() {
   };
 
   return (
-    <div className="space-y-4 sm:space-y-6">
-      {/* Top Session Bar */}
-      <div className="glass-panel rounded-2xl p-3 sm:p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
+    <div className="space-y-6">
+      {/* Session Header Card */}
+      <div className="app-card p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-lg sm:text-xl font-bold text-slate-900 tracking-tight flex items-center space-x-2">
-            <span>Live Conversation Session</span>
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse inline-block" />
-          </h1>
-          <p className="text-xs text-slate-500">
-            Real-time multimodal speech and gesture fusion
+          <div className="flex items-center space-x-2">
+            <h1 className="text-lg font-bold text-slate-900 tracking-tight">
+              Live Assistive Workspace
+            </h1>
+            <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-medium">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span>Active</span>
+            </span>
+          </div>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Real-time multimodal speech context and landmark fusion
           </p>
         </div>
 
@@ -172,7 +191,7 @@ export default function ConversationPage() {
               setLanguage(e.target.value);
               sessionStorage.setItem("ps16_language", e.target.value);
             }}
-            className="text-xs font-semibold bg-white border border-slate-200/90 text-slate-700 rounded-xl px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+            className="text-xs font-medium bg-white border border-slate-200 text-slate-700 rounded-lg px-3 py-1.5 focus:outline-none focus:border-blue-500"
           >
             <option value="hi-en">Code-mixed (Hindi + English)</option>
             <option value="en">English (US/UK)</option>
@@ -187,34 +206,34 @@ export default function ConversationPage() {
                 lipActive
               )
             }
-            className="flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium transition-colors"
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium transition-colors"
           >
             <RefreshCw className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Refresh</span>
+            <span className="hidden sm:inline">Refresh Candidates</span>
           </button>
         </div>
       </div>
 
-      {/* Main Grid: Responsive 2-column on desktop, stacked on mobile */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
-        {/* Left Column: Camera + Live Transcripts (5 cols on desktop) */}
+      {/* Main Grid: Left Video & Dialogue, Right Candidates */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Left Column: Camera + Conversation Dialogue */}
         <div className="lg:col-span-5 space-y-4">
           <CameraLandmarkFeed
             onGestureDetected={handleGestureChange}
             onLipActivityDetected={handleLipChange}
           />
 
-          {/* Transcript / Dialogue Feed */}
-          <div className="glass-panel rounded-2xl p-4 space-y-3 flex flex-col h-[280px] sm:h-[340px]">
-            <div className="flex items-center justify-between text-xs font-semibold text-slate-600 border-b border-slate-100 pb-2">
+          {/* Dialogue Thread */}
+          <div className="app-card p-4 space-y-3 flex flex-col h-[340px]">
+            <div className="flex items-center justify-between text-xs font-semibold text-slate-700 border-b border-slate-100 pb-2.5">
               <span className="flex items-center space-x-1.5">
-                <MessageCircle className="w-3.5 h-3.5 text-indigo-500" />
-                <span>Conversation Context</span>
+                <MessageSquare className="w-4 h-4 text-blue-600" />
+                <span>Dialogue Context</span>
               </span>
               <span className="text-[11px] text-slate-400 font-normal">Dual stream</span>
             </div>
 
-            <div className="flex-1 overflow-y-auto space-y-2.5 pr-1 text-xs sm:text-sm">
+            <div className="flex-1 overflow-y-auto space-y-3 pr-1 text-xs">
               {messages.map((msg) => {
                 const isPartner = msg.speaker === "partner";
                 return (
@@ -223,35 +242,35 @@ export default function ConversationPage() {
                     className={`flex flex-col ${isPartner ? "items-start" : "items-end"}`}
                   >
                     <div
-                      className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 shadow-2xs ${
+                      className={`max-w-[85%] rounded-xl px-3.5 py-2.5 ${
                         isPartner
-                          ? "bg-slate-100 text-slate-800 rounded-tl-xs"
-                          : "bg-gradient-to-r from-indigo-600 to-sky-600 text-white rounded-tr-xs"
+                          ? "bg-slate-100 text-slate-900 border border-slate-200"
+                          : "bg-blue-600 text-white font-medium shadow-xs"
                       }`}
                     >
-                      <div className="text-[10px] opacity-75 font-medium mb-0.5">
+                      <div className="text-[10px] opacity-75 font-semibold mb-0.5">
                         {isPartner ? "Partner" : "You (Spoken Voice)"}
                       </div>
-                      <div className="leading-snug">{msg.text}</div>
+                      <div className="leading-relaxed">{msg.text}</div>
                     </div>
-                    <span className="text-[10px] text-slate-400 mt-0.5 px-1">{msg.time}</span>
+                    <span className="text-[10px] text-slate-400 mt-1 px-1">{msg.time}</span>
                   </div>
                 );
               })}
             </div>
 
-            {/* Simulated Partner Input Form */}
-            <form onSubmit={handlePartnerSubmit} className="pt-2 border-t border-slate-100 flex items-center space-x-2">
+            {/* Partner Speech / Typed Entry */}
+            <form onSubmit={handlePartnerSubmit} className="pt-2.5 border-t border-slate-100 flex items-center space-x-2">
               <input
                 type="text"
                 value={partnerInput}
                 onChange={(e) => setPartnerInput(e.target.value)}
-                placeholder="Partner speaking or typing..."
-                className="flex-1 text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                placeholder="Type partner speech or prompt..."
+                className="flex-1 text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-500"
               />
               <button
                 type="submit"
-                className="p-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white transition-colors"
+                className="p-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors"
                 title="Send partner prompt"
               >
                 <Send className="w-3.5 h-3.5" />
@@ -260,12 +279,12 @@ export default function ConversationPage() {
           </div>
         </div>
 
-        {/* Right Column: Candidate Responses & Confirmation Gate (7 cols on desktop) */}
+        {/* Right Column: Suggested Candidate Responses */}
         <div className="lg:col-span-7 space-y-4">
-          <div className="glass-panel rounded-2xl p-4 sm:p-6 space-y-4">
+          <div className="app-card p-5 sm:p-6 space-y-4">
             {audioError && (
-              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs flex items-center space-x-2">
-                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+              <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg text-xs flex items-center space-x-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0 text-amber-600" />
                 <span>{audioError}</span>
               </div>
             )}
@@ -281,7 +300,7 @@ export default function ConversationPage() {
         </div>
       </div>
 
-      {/* Hidden Audio Player */}
+      {/* Hidden Audio Player for Synthesis */}
       <audio ref={audioPlayerRef} className="hidden" />
     </div>
   );

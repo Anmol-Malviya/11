@@ -1,80 +1,133 @@
 import Link from "next/link";
-import { ArrowRight, Mic, Video, CheckCircle2, Shield, HeartHandshake, Sparkles } from "lucide-react";
+import { 
+  ArrowRight, 
+  MessageSquare, 
+  Hand, 
+  Volume2, 
+  ShieldCheck, 
+  Sparkles, 
+  Check, 
+  Cpu, 
+  Globe2 
+} from "lucide-react";
 
 export default function Home() {
   return (
-    <div className="flex flex-col items-center justify-center py-6 sm:py-12 space-y-8 sm:space-y-12">
-      {/* Hero Header */}
+    <div className="flex flex-col items-center justify-center py-6 sm:py-12 space-y-12 max-w-6xl mx-auto">
+      {/* Hero Section */}
       <div className="text-center max-w-3xl space-y-4 px-2">
-        <div className="inline-flex items-center space-x-2 bg-indigo-50 border border-indigo-200/60 text-indigo-700 px-3.5 py-1 rounded-full text-xs font-semibold tracking-wide shadow-xs">
-          <HeartHandshake className="w-3.5 h-3.5 text-indigo-600" />
-          <span>Multimodal Assistive Technology</span>
+        <div className="inline-flex items-center space-x-2 bg-blue-50 border border-blue-200/80 text-blue-700 px-3 py-1 rounded-full text-xs font-semibold tracking-wide">
+          <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
+          <span>Production Assistive Technology</span>
         </div>
-        <h1 className="text-3xl sm:text-5xl font-black tracking-tight text-slate-900 leading-tight">
-          Multimodal Live Conversation Assistant
+        <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight text-slate-950 leading-tight">
+          Expressive Communication Without Speech Barriers
         </h1>
-        <p className="text-sm sm:text-lg text-slate-600 leading-relaxed font-normal">
-          Designed for individuals with ALS, Cerebral Palsy, Parkinson’s, stroke, or laryngectomy. 
-          Fuses speech audio, camera gesture tracking, and lip movement to predict natural responses, speaking with an expressive, consented voice.
+        <p className="text-base sm:text-lg text-slate-600 leading-relaxed font-normal">
+          Designed for individuals with ALS, stroke, cerebral palsy, and vocal conditions. 
+          Combines real-time hand gesture recognition, speech context, and natural speech synthesis 
+          to give every user full control over what they speak.
         </p>
 
-        <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4 w-full">
+        <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-3 w-full">
           <Link
             href="/gestures"
-            className="w-full sm:w-auto inline-flex items-center justify-center space-x-2 px-6 py-3.5 rounded-2xl bg-gradient-to-r from-indigo-600 to-sky-600 hover:from-indigo-700 hover:to-sky-700 font-semibold text-white text-base shadow-sm shadow-indigo-200 transition-all active:scale-98"
+            className="w-full sm:w-auto inline-flex items-center justify-center space-x-2 px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 font-semibold text-white text-sm shadow-xs transition-colors"
           >
-            <Sparkles className="w-4 h-4" />
-            <span>Gesture Live Assistant</span>
+            <Hand className="w-4 h-4" />
+            <span>Launch Gesture Assistant</span>
             <ArrowRight className="w-4 h-4 ml-1" />
           </Link>
           <Link
             href="/conversation"
-            className="w-full sm:w-auto inline-flex items-center justify-center space-x-2 px-6 py-3.5 rounded-2xl bg-white hover:bg-slate-50 font-medium text-slate-700 text-base border border-slate-200/90 shadow-xs transition-all"
+            className="w-full sm:w-auto inline-flex items-center justify-center space-x-2 px-6 py-3 rounded-xl bg-white hover:bg-slate-50 font-medium text-slate-800 text-sm border border-slate-200 shadow-xs transition-colors"
           >
-            <span>Multimodal Live Chat</span>
+            <MessageSquare className="w-4 h-4 text-slate-600" />
+            <span>Open Live Dialogue</span>
           </Link>
         </div>
       </div>
 
-      {/* Feature Highlights Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 max-w-5xl w-full">
-        <div className="glass-panel rounded-2xl p-5 sm:p-6 space-y-3 transition-all hover:shadow-md">
-          <div className="w-10 h-10 rounded-xl bg-sky-50 border border-sky-200/60 flex items-center justify-center text-sky-600">
-            <Mic className="w-5 h-5" />
+      {/* Primary Modality Highlights */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full">
+        {/* Card 1: Gesture Recognition */}
+        <div className="app-card p-6 flex flex-col justify-between space-y-4">
+          <div className="space-y-3">
+            <div className="w-9 h-9 rounded-lg bg-blue-50 border border-blue-200/60 flex items-center justify-center text-blue-600">
+              <Hand className="w-4 h-4" />
+            </div>
+            <h2 className="text-base font-bold text-slate-900">Real-Time Gesture Vision</h2>
+            <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+              Trained 2D Convolutional Neural Network with contour extraction and adaptive skin-chroma filtering. 
+              Supports OK, Thumbs Up, Thumbs Down, Fist, and Five gestures with zero cloud video transmission.
+            </p>
           </div>
-          <h2 className="text-base font-bold text-slate-900">Partner & Patient Speech</h2>
-          <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
-            ElevenLabs Scribe captures conversational speech in English, Hindi, and code-mixed formats, interpreting context in real-time.
-          </p>
+          <Link 
+            href="/gestures" 
+            className="text-xs font-semibold text-blue-600 hover:text-blue-700 inline-flex items-center space-x-1 pt-2"
+          >
+            <span>Open Gesture Studio</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
         </div>
 
-        <div className="glass-panel rounded-2xl p-5 sm:p-6 space-y-3 transition-all hover:shadow-md">
-          <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-200/60 flex items-center justify-center text-indigo-600">
-            <Video className="w-5 h-5" />
+        {/* Card 2: Multimodal Dialogue */}
+        <div className="app-card p-6 flex flex-col justify-between space-y-4">
+          <div className="space-y-3">
+            <div className="w-9 h-9 rounded-lg bg-emerald-50 border border-emerald-200/60 flex items-center justify-center text-emerald-600">
+              <MessageSquare className="w-4 h-4" />
+            </div>
+            <h2 className="text-base font-bold text-slate-900">Contextual Response Predictions</h2>
+            <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+              Fuses partner conversational speech with non-verbal physical signals using Gemini 2.5 Flash. 
+              Generates 3 empathetic, natural candidate responses ready for 1-tap confirmation.
+            </p>
           </div>
-          <h2 className="text-base font-bold text-slate-900">Lip & Gesture Landmarks</h2>
-          <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
-            MediaPipe on-device tracking measures Lip Aspect Ratio (LAR), nodding, and hand gestures. Zero raw video ever leaves your device.
-          </p>
+          <Link 
+            href="/conversation" 
+            className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 inline-flex items-center space-x-1 pt-2"
+          >
+            <span>Start Live Session</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
         </div>
 
-        <div className="glass-panel rounded-2xl p-5 sm:p-6 space-y-3 transition-all hover:shadow-md">
-          <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200/60 flex items-center justify-center text-emerald-600">
-            <CheckCircle2 className="w-5 h-5" />
+        {/* Card 3: Consent & Synthesis */}
+        <div className="app-card p-6 flex flex-col justify-between space-y-4">
+          <div className="space-y-3">
+            <div className="w-9 h-9 rounded-lg bg-purple-50 border border-purple-200/60 flex items-center justify-center text-purple-600">
+              <Volume2 className="w-4 h-4" />
+            </div>
+            <h2 className="text-base font-bold text-slate-900">Consented Voice Output</h2>
+            <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+              High-fidelity speech synthesis via ElevenLabs and local standard PCM fallback. 
+              Strict cryptographic consent verification guarantees voice cloning cannot run without authorization.
+            </p>
           </div>
-          <h2 className="text-base font-bold text-slate-900">Human Confirmation Gate</h2>
-          <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
-            Agency always stays with the user: candidate replies are presented as easy one-tap cards with an option to edit before voice synthesis.
-          </p>
+          <Link 
+            href="/settings" 
+            className="text-xs font-semibold text-purple-600 hover:text-purple-700 inline-flex items-center space-x-1 pt-2"
+          >
+            <span>Manage Privacy & Voice</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
         </div>
       </div>
 
-      {/* Trust & Privacy Notice */}
-      <div className="max-w-2xl w-full glass-panel-subtle rounded-2xl p-4 sm:p-5 text-xs sm:text-sm text-slate-600 flex items-center space-x-3 border border-slate-200/70">
-        <Shield className="w-6 h-6 text-emerald-600 flex-shrink-0" />
-        <p>
-          <strong className="text-slate-800">Privacy & Consent First:</strong> Zero unconsented storage. Voice cloning strictly requires signed explicit permission that can be revoked anytime.
-        </p>
+      {/* System Specifications Bar */}
+      <div className="app-card p-6 w-full flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-600">
+        <div className="flex items-center space-x-3">
+          <Cpu className="w-4 h-4 text-slate-400" />
+          <span><strong>Engine:</strong> PyTorch CNN + OpenCV (100×120 ROI)</span>
+        </div>
+        <div className="flex items-center space-x-3">
+          <Globe2 className="w-4 h-4 text-slate-400" />
+          <span><strong>Language Support:</strong> English (en), Hindi (hi), Hinglish (hi-en)</span>
+        </div>
+        <div className="flex items-center space-x-3">
+          <ShieldCheck className="w-4 h-4 text-emerald-600" />
+          <span className="text-emerald-700 font-medium">HIPAA / Privacy Compliant Architecture</span>
+        </div>
       </div>
     </div>
   );

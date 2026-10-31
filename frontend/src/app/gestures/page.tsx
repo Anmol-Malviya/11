@@ -8,14 +8,13 @@ import {
   Trash2,
   Plus,
   RefreshCw,
-  Sliders,
-  Sparkles,
+  SlidersHorizontal,
+  Hand,
   MessageSquare,
-  HelpCircle,
   Mic,
   MicOff,
-  Edit3,
-  Check
+  Check,
+  ChevronDown
 } from "lucide-react";
 import { LiveGestureWebcam } from "@/components/LiveGestureWebcam";
 import {
@@ -58,16 +57,7 @@ export default function GestureAssistantPage() {
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
   const [ttsSupported, setTtsSupported] = useState<boolean>(true);
 
-  // Load conversations on mount
-  useEffect(() => {
-    loadConversations();
-    // Check SpeechSynthesis support
-    if (typeof window !== "undefined" && !("speechSynthesis" in window)) {
-      setTtsSupported(false);
-    }
-  }, []);
-
-  const loadConversations = async () => {
+  const loadConversations = React.useCallback(async () => {
     try {
       const convs = await gestureApi.listConversations();
       setConversations(convs);
@@ -78,10 +68,17 @@ export default function GestureAssistantPage() {
       }
     } catch (e) {
       console.error("Could not load conversations:", e);
-      // Fallback: create default local
-      createNewConversation();
     }
-  };
+  }, []);
+
+  // Load conversations on mount
+  useEffect(() => {
+    loadConversations();
+    // Check SpeechSynthesis support
+    if (typeof window !== "undefined" && !("speechSynthesis" in window)) {
+      setTtsSupported(false);
+    }
+  }, [loadConversations]);
 
   const selectConversation = async (convId: string) => {
     setActiveConversationId(convId);
@@ -148,7 +145,7 @@ export default function GestureAssistantPage() {
       return;
     }
 
-    window.speechSynthesis.cancel(); // Stop any pending speech
+    window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = 0.95;
     utterance.pitch = 1.0;
@@ -166,46 +163,44 @@ export default function GestureAssistantPage() {
     }
   };
 
-  // Confirm and Send message as speech-impaired user
+  // User confirms phrase to send to conversation thread
   const handleConfirmAndSendUserMessage = async () => {
-    if (!phraseText.trim() || !activeConversationId) return;
+    if (!phraseText.trim()) return;
 
-    // Trigger TTS confirmation
+    // 1. Speak phrase immediately through TTS
     speakCurrentPhrase(phraseText);
 
+    // 2. Add message to database & thread
     try {
-      const newMsg = await gestureApi.addMessage(activeConversationId, {
+      const msg = await gestureApi.addMessage(activeConversationId, {
         text: phraseText.trim(),
         speaker: "user",
         modality: "gesture",
-        gesture_label: recognizedGesture !== "none" ? recognizedGesture : undefined,
-        confidence: gestureConfidence > 0 ? gestureConfidence : undefined
+        gesture_label: recognizedGesture !== "none" ? recognizedGesture : null,
+        confidence: gestureConfidence > 0 ? gestureConfidence : null
       });
-      setMessages((prev) => [...prev, newMsg]);
-      setPhraseText("");
-      setRecognizedGesture("none");
-      setGestureConfidence(0);
+      setMessages((prev) => [...prev, msg]);
       setIsEditingPhrase(false);
     } catch (e) {
-      console.error("Could not send user message:", e);
+      console.error("Failed to post message:", e);
     }
   };
 
-  // Partner message submit
+  // Partner submits written or spoken prompt
   const handlePartnerSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!partnerInput.trim() || !activeConversationId) return;
+    if (!partnerInput.trim()) return;
 
     try {
-      const newMsg = await gestureApi.addMessage(activeConversationId, {
+      const msg = await gestureApi.addMessage(activeConversationId, {
         text: partnerInput.trim(),
         speaker: "partner",
-        modality: "typed"
+        modality: isSpeechListening ? "speech_to_text" : "typed"
       });
-      setMessages((prev) => [...prev, newMsg]);
+      setMessages((prev) => [...prev, msg]);
       setPartnerInput("");
     } catch (e) {
-      console.error("Could not send partner message:", e);
+      console.error("Failed to post partner message:", e);
     }
   };
 
@@ -251,65 +246,66 @@ export default function GestureAssistantPage() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto py-4 px-2 sm:px-4 space-y-6">
-      {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 glass-panel p-4 rounded-2xl border border-slate-200/80 shadow-xs">
+    <div className="space-y-6">
+      {/* Workspace Header */}
+      <div className="app-card p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <div className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-semibold mb-1">
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>AI Manthan 2.0 Assistive Suite</span>
+          <div className="flex items-center space-x-2">
+            <h1 className="text-lg font-bold text-slate-900 tracking-tight">
+              Gesture Recognition Studio
+            </h1>
+            <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full bg-blue-50 border border-blue-200 text-blue-700 text-[11px] font-medium">
+              <span>CNN 100×120</span>
+            </span>
           </div>
-          <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-            Live Gesture Conversation Assistant
-          </h1>
-          <p className="text-xs text-slate-600">
-            Real-time hand gesture recognition with CNN (100x120 grayscale) & Two-way communication.
+          <p className="text-xs text-slate-500 mt-0.5">
+            Real-time hand gesture classification with live conversational dialogue logging
           </p>
         </div>
 
-        {/* Action Controls */}
         <div className="flex items-center space-x-2">
           <button
             onClick={createNewConversation}
-            className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center space-x-1.5 shadow-sm transition"
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition-colors"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>New Chat</span>
+            <span>New Session</span>
           </button>
           <button
             onClick={deleteCurrentConversation}
+            disabled={!activeConversationId}
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-medium transition-colors disabled:opacity-40"
             title="Delete current conversation"
-            className="p-2 rounded-xl border border-slate-200 hover:bg-rose-50 text-slate-600 hover:text-rose-600 transition"
           >
-            <Trash2 className="w-4 h-4" />
+            <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+            <span className="hidden sm:inline">Delete</span>
           </button>
         </div>
       </div>
 
-      {/* Main Grid: Left = Camera + Gesture Output, Right = 2-Way Chat + History */}
+      {/* Main Studio Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column: Live Vision Feed & Gesture Action Board */}
-        <div className="lg:col-span-7 space-y-5">
-          {/* Webcam Component */}
+        {/* Left Column: Live Webcam + Gesture Prediction Output */}
+        <div className="lg:col-span-7 space-y-4">
           <LiveGestureWebcam
             onGestureRecognized={handleGestureDetected}
             confidenceThreshold={confidenceThreshold}
             phraseMapping={phraseMap}
           />
 
-          {/* User Communication Output Area */}
-          <div className="glass-panel p-5 rounded-3xl border border-indigo-100 shadow-sm space-y-4">
+          {/* User Spoken Phrase Composer */}
+          <div className="app-card p-5 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center space-x-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-indigo-600" />
-                <h2 className="text-sm font-bold text-slate-900 tracking-tight">
-                  Your Communication Phrase
+                <span className="w-2 h-2 rounded-full bg-blue-600" />
+                <h2 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                  Recognized Expression Composer
                 </h2>
               </div>
               {recognizedGesture !== "none" && (
-                <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-medium">
-                  <span>Gesture: <strong>{recognizedGesture}</strong></span>
-                  <span>({(gestureConfidence * 100).toFixed(0)}%)</span>
+                <div className="flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-slate-100 border border-slate-200 text-slate-700 text-xs font-mono">
+                  <span>Detected: <strong>{recognizedGesture}</strong></span>
+                  <span className="text-blue-600">({(gestureConfidence * 100).toFixed(0)}%)</span>
                 </div>
               )}
             </div>
@@ -322,31 +318,31 @@ export default function GestureAssistantPage() {
                   setPhraseText(e.target.value);
                   setIsEditingPhrase(true);
                 }}
-                placeholder="Show a hand gesture to the camera or type here directly..."
-                rows={3}
-                className="w-full text-lg sm:text-2xl font-bold text-slate-900 p-4 rounded-2xl border-2 border-indigo-200 focus:border-indigo-600 focus:outline-none transition resize-none bg-indigo-50/20"
+                placeholder="Show a hand gesture inside the target ROI or type here directly..."
+                rows={2}
+                className="w-full text-base sm:text-xl font-bold text-slate-900 p-3.5 rounded-xl border border-slate-200 focus:border-blue-600 focus:outline-none transition resize-none bg-slate-50/50"
               />
             </div>
 
-            {/* Phrase Action Buttons (Speak, Confirm, Clear) */}
+            {/* Phrase Action Buttons */}
             <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
               <div className="flex items-center space-x-2">
                 <button
                   onClick={() => speakCurrentPhrase()}
                   disabled={!phraseText.trim() || isSpeaking}
-                  className="px-4 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 active:scale-95 text-white font-semibold text-xs sm:text-sm flex items-center space-x-2 shadow-sm transition disabled:opacity-50"
+                  className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs flex items-center space-x-1.5 shadow-xs transition-colors disabled:opacity-50"
                 >
-                  <Volume2 className="w-4 h-4" />
-                  <span>{isSpeaking ? "Speaking..." : "Speak Phrase"}</span>
+                  <Volume2 className="w-3.5 h-3.5" />
+                  <span>{isSpeaking ? "Speaking..." : "Speak Expression"}</span>
                 </button>
 
                 {isSpeaking && (
                   <button
                     onClick={cancelSpeech}
-                    className="p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition"
+                    className="p-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs transition"
                     title="Stop speaking"
                   >
-                    <VolumeX className="w-4 h-4 text-rose-500" />
+                    <VolumeX className="w-3.5 h-3.5 text-rose-500" />
                   </button>
                 )}
 
@@ -356,7 +352,7 @@ export default function GestureAssistantPage() {
                     setRecognizedGesture("none");
                     setIsEditingPhrase(false);
                   }}
-                  className="px-3 py-2.5 rounded-xl text-slate-500 hover:text-slate-800 hover:bg-slate-100 text-xs font-medium transition"
+                  className="px-3 py-2 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 text-xs font-medium transition"
                 >
                   Clear
                 </button>
@@ -365,26 +361,29 @@ export default function GestureAssistantPage() {
               <button
                 onClick={handleConfirmAndSendUserMessage}
                 disabled={!phraseText.trim()}
-                className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-bold text-xs sm:text-sm flex items-center space-x-2 shadow-md shadow-indigo-200 transition disabled:opacity-50"
+                className="px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs flex items-center space-x-1.5 shadow-xs transition-colors disabled:opacity-50"
               >
-                <Check className="w-4 h-4" />
-                <span>Confirm & Send Message</span>
+                <Check className="w-3.5 h-3.5" />
+                <span>Confirm & Post to Thread</span>
               </button>
             </div>
           </div>
 
           {/* Configurable Phrase Mapping Drawer */}
-          <details className="group glass-panel rounded-2xl border border-slate-200/80 p-4 transition-all">
+          <details className="group app-card p-4 transition-all">
             <summary className="flex items-center justify-between cursor-pointer font-bold text-xs text-slate-700 uppercase tracking-wider">
-              <span>Gesture-to-Phrase Mappings & Settings</span>
-              <Sliders className="w-4 h-4 text-slate-400 group-open:rotate-90 transition-transform" />
+              <div className="flex items-center space-x-2">
+                <SlidersHorizontal className="w-3.5 h-3.5 text-slate-400" />
+                <span>Configurable Gesture-to-Phrase Mappings</span>
+              </div>
+              <ChevronDown className="w-4 h-4 text-slate-400 group-open:rotate-180 transition-transform" />
             </summary>
             
             <div className="mt-4 pt-3 border-t border-slate-100 space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {Object.keys(phraseMap).filter(k => k !== "blank").map((gestureKey) => (
                   <div key={gestureKey} className="flex flex-col space-y-1">
-                    <label className="text-[11px] font-semibold text-slate-600 uppercase font-mono">
+                    <label className="text-[10px] font-semibold text-slate-500 uppercase font-mono">
                       {gestureKey}
                     </label>
                     <input
@@ -394,7 +393,7 @@ export default function GestureAssistantPage() {
                         const val = e.target.value;
                         setPhraseMap(prev => ({ ...prev, [gestureKey]: val }));
                       }}
-                      className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium focus:border-indigo-500 focus:outline-none"
+                      className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium focus:border-blue-500 focus:outline-none"
                     />
                   </div>
                 ))}
@@ -419,32 +418,29 @@ export default function GestureAssistantPage() {
 
         {/* Right Column: Two-Way Conversation Panel & History */}
         <div className="lg:col-span-5 flex flex-col space-y-4">
-          {/* Conversation Messages Thread */}
-          <div className="glass-panel rounded-3xl border border-slate-200/80 p-4 sm:p-5 flex flex-col h-[520px] shadow-sm">
+          {/* Conversation Dialogue Thread */}
+          <div className="app-card p-4 sm:p-5 flex flex-col h-[520px]">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center space-x-2">
-                <MessageSquare className="w-4 h-4 text-indigo-600" />
-                <h3 className="text-sm font-bold text-slate-900">Live Dialogue</h3>
+                <MessageSquare className="w-4 h-4 text-blue-600" />
+                <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Live Dialogue Log</h3>
               </div>
-              <span className="text-[11px] text-slate-500 font-mono">
+              <span className="text-[11px] text-slate-400 font-mono">
                 {messages.length} messages
               </span>
             </div>
 
-            {/* Message bubbles */}
-            <div className="flex-1 overflow-y-auto py-3 space-y-3 pr-1">
+            {/* Messages Scroll Area */}
+            <div className="flex-1 overflow-y-auto space-y-3 py-3 pr-1 text-xs">
               {loadingMessages ? (
-                <div className="flex items-center justify-center h-full text-xs text-slate-400 space-x-2">
-                  <RefreshCw className="w-4 h-4 animate-spin text-indigo-500" />
-                  <span>Loading history...</span>
+                <div className="flex items-center justify-center h-full text-slate-400">
+                  <RefreshCw className="w-4 h-4 animate-spin mr-1.5" />
+                  <span>Loading dialogue...</span>
                 </div>
               ) : messages.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full text-center p-6 space-y-2 text-slate-400">
-                  <MessageSquare className="w-8 h-8 stroke-1 text-slate-300" />
-                  <p className="text-xs font-medium">No messages in this conversation yet.</p>
-                  <p className="text-[11px] text-slate-400">
-                    Use gestures on the left or type a reply below to begin.
-                  </p>
+                <div className="flex flex-col items-center justify-center h-full text-center text-slate-400 space-y-2">
+                  <MessageSquare className="w-8 h-8 text-slate-300" />
+                  <p>No messages yet. Send a gesture phrase or have your partner type below.</p>
                 </div>
               ) : (
                 messages.map((m) => {
@@ -454,24 +450,24 @@ export default function GestureAssistantPage() {
                       key={m.id}
                       className={`flex flex-col ${isUser ? "items-end" : "items-start"}`}
                     >
-                      <div className="flex items-center space-x-1.5 text-[10px] text-slate-400 mb-0.5 px-1">
+                      <div className="flex items-center space-x-1.5 text-[10px] text-slate-400 mb-1 px-1">
                         <span className="font-semibold text-slate-700">
-                          {isUser ? "Speech Impaired User" : "Conversation Partner"}
+                          {isUser ? "You" : "Partner"}
                         </span>
                         <span>•</span>
                         <span>{new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
                         {m.gesture_label && (
-                          <span className="bg-indigo-100 text-indigo-700 px-1.5 py-0.2 rounded font-mono">
+                          <span className="bg-slate-100 text-slate-700 px-1.5 py-0.2 rounded font-mono border border-slate-200">
                             {m.gesture_label}
                           </span>
                         )}
                       </div>
 
                       <div
-                        className={`p-3.5 rounded-2xl max-w-[85%] text-sm leading-relaxed shadow-xs ${
+                        className={`p-3 rounded-xl max-w-[85%] text-xs leading-relaxed ${
                           isUser
-                            ? "bg-indigo-600 text-white rounded-tr-xs"
-                            : "bg-slate-100 text-slate-800 rounded-tl-xs border border-slate-200/60"
+                            ? "bg-blue-600 text-white font-medium shadow-xs"
+                            : "bg-slate-100 text-slate-900 border border-slate-200"
                         }`}
                       >
                         {m.text}
@@ -488,46 +484,46 @@ export default function GestureAssistantPage() {
                 type="text"
                 value={partnerInput}
                 onChange={(e) => setPartnerInput(e.target.value)}
-                placeholder="Partner response (or click mic to speak)..."
-                className="flex-1 px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:border-indigo-600 focus:outline-none bg-slate-50 focus:bg-white transition"
+                placeholder="Partner response or inquiry..."
+                className="flex-1 px-3 py-2 rounded-lg border border-slate-200 text-xs focus:border-blue-600 focus:outline-none bg-slate-50 focus:bg-white transition"
               />
 
               <button
                 type="button"
                 onClick={toggleSpeechRecognition}
-                className={`p-2.5 rounded-xl border transition ${
+                className={`p-2 rounded-lg border transition ${
                   isSpeechListening
                     ? "bg-rose-500 text-white border-rose-600 animate-pulse"
                     : "border-slate-200 text-slate-600 hover:bg-slate-100"
                 }`}
                 title="Speak to text (Speech Recognition)"
               >
-                {isSpeechListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                {isSpeechListening ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
               </button>
 
               <button
                 type="submit"
                 disabled={!partnerInput.trim()}
-                className="p-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 active:scale-95 text-white transition disabled:opacity-40"
+                className="p-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white transition disabled:opacity-40"
               >
-                <Send className="w-4 h-4" />
+                <Send className="w-3.5 h-3.5" />
               </button>
             </form>
           </div>
 
           {/* Conversation Sessions List */}
-          <div className="glass-panel p-4 rounded-2xl border border-slate-200/80 space-y-2">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
-              Recent Conversations (MongoDB / Resilient Store)
+          <div className="app-card p-4 space-y-2">
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+              Saved Sessions (MongoDB Atlas)
             </span>
             <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
               {conversations.map((c) => (
                 <button
                   key={c.id}
                   onClick={() => selectConversation(c.id)}
-                  className={`w-full text-left px-3 py-2 rounded-xl text-xs flex items-center justify-between transition ${
+                  className={`w-full text-left px-3 py-1.5 rounded-lg text-xs flex items-center justify-between transition ${
                     activeConversationId === c.id
-                      ? "bg-indigo-50 text-indigo-700 font-semibold border border-indigo-200"
+                      ? "bg-blue-50 text-blue-700 font-semibold border border-blue-200"
                       : "text-slate-600 hover:bg-slate-50"
                   }`}
                 >
@@ -544,4 +540,3 @@ export default function GestureAssistantPage() {
     </div>
   );
 }
-
