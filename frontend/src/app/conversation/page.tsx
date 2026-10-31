@@ -10,11 +10,13 @@ import {
   Mic, 
   MicOff, 
   Check, 
-  SlidersHorizontal 
+  SlidersHorizontal,
+  Loader2
 } from "lucide-react";
 import { CameraLandmarkFeed } from "@/components/CameraLandmarkFeed";
 import { ReplyCandidates } from "@/components/ReplyCandidates";
 import { api, CandidateReply } from "@/lib/api";
+import { gestureApi } from "@/lib/gestureApi";
 
 interface Message {
   id: string;
@@ -52,6 +54,11 @@ export default function ConversationPage() {
   const [currentInferenceId, setCurrentInferenceId] = useState("");
   const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
   const [audioError, setAudioError] = useState("");
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [activeConvId, setActiveConvId] = useState<string | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
 
   const triggerInference = async (
@@ -77,25 +84,117 @@ export default function ConversationPage() {
     }
   };
 
-  // Initial inference based on starting partner message
+  // Initialize MongoDB conversation thread & initial inference based on starting partner message
   useEffect(() => {
+    let isMounted = true;
+    async function initConversation() {
+      try {
+        const conv = await gestureApi.createConversation("Live Assistive Session", "Conversation Partner");
+        if (isMounted && conv && conv.id) {
+          setActiveConvId(conv.id);
+          // Log initial greeting to db
+          await gestureApi.addMessage(conv.id, {
+            text: "Hello! Would you like some water or tea?",
+            speaker: "partner",
+            modality: "typed",
+          });
+        }
+      } catch (err) {
+        console.warn("MongoDB conversation initialization notice:", err);
+      }
+    }
+
+    initConversation();
     triggerInference("Hello! Would you like some water or tea?", "unknown", false, sessionId, language);
+    return () => { isMounted = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Microphone audio capture & ElevenLabs STT
+  const startRecording = async () => {
+    try {
+      setAudioError("");
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunksRef.current = [];
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/wav" });
+        setIsTranscribing(true);
+        try {
+          const result = await api.transcribeAudio(sessionId, audioBlob, language);
+          const transcribedText = result.text;
+          if (transcribedText) {
+            const newMsg: Message = {
+              id: `m_${Date.now()}`,
+              speaker: "partner",
+              text: transcribedText,
+              time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            };
+            setMessages((prev) => [...prev, newMsg]);
+
+            if (activeConvId) {
+              gestureApi.addMessage(activeConvId, {
+                text: transcribedText,
+                speaker: "partner",
+                modality: "speech_to_text",
+              }).catch(() => {});
+            }
+
+            triggerInference(transcribedText, currentGesture, lipActive);
+          }
+        } catch (err: unknown) {
+          console.error("Transcription error:", err);
+          setAudioError("Speech recognition failed. You can type or record again.");
+        } finally {
+          setIsTranscribing(false);
+          stream.getTracks().forEach((track) => track.stop());
+        }
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (err: unknown) {
+      console.error("Microphone access error:", err);
+      setAudioError("Microphone access was denied. Please allow microphone permissions.");
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
 
   const handlePartnerSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!partnerInput.trim()) return;
 
+    const text = partnerInput.trim();
     const newMsg: Message = {
       id: `m_${Date.now()}`,
       speaker: "partner",
-      text: partnerInput.trim(),
+      text,
       time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     };
 
     setMessages((prev) => [...prev, newMsg]);
-    triggerInference(partnerInput.trim(), currentGesture, lipActive);
+    if (activeConvId) {
+      gestureApi.addMessage(activeConvId, {
+        text,
+        speaker: "partner",
+        modality: "typed",
+      }).catch(() => {});
+    }
+    triggerInference(text, currentGesture, lipActive);
     setPartnerInput("");
   };
 
@@ -129,6 +228,15 @@ export default function ConversationPage() {
         time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       };
       setMessages((prev) => [...prev, newMsg]);
+
+      if (activeConvId) {
+        gestureApi.addMessage(activeConvId, {
+          text: chosenText,
+          speaker: "user",
+          modality: currentGesture !== "unknown" ? "gesture" : "speech_to_text",
+          gesture_label: currentGesture !== "unknown" ? currentGesture : undefined,
+        }).catch(() => {});
+      }
 
       const confirmation = await api.confirmReply(
         sessionId,
@@ -259,18 +367,41 @@ export default function ConversationPage() {
               })}
             </div>
 
-            {/* Partner Speech / Typed Entry */}
+            {/* Partner Speech / Typed Entry with Live Microphone */}
             <form onSubmit={handlePartnerSubmit} className="pt-2.5 border-t border-slate-100 flex items-center space-x-2">
+              <button
+                type="button"
+                onClick={isRecording ? stopRecording : startRecording}
+                disabled={isTranscribing}
+                className={`p-2 rounded-lg font-medium transition-all ${
+                  isRecording 
+                    ? "bg-rose-600 text-white animate-pulse" 
+                    : isTranscribing 
+                      ? "bg-amber-100 text-amber-700 cursor-not-allowed" 
+                      : "bg-slate-100 hover:bg-slate-200 text-slate-700"
+                }`}
+                title={isRecording ? "Stop recording speech" : "Record partner speech (ElevenLabs Scribe)"}
+              >
+                {isTranscribing ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-amber-600" />
+                ) : isRecording ? (
+                  <MicOff className="w-4 h-4 text-white" />
+                ) : (
+                  <Mic className="w-4 h-4" />
+                )}
+              </button>
               <input
                 type="text"
                 value={partnerInput}
                 onChange={(e) => setPartnerInput(e.target.value)}
-                placeholder="Type partner speech or prompt..."
-                className="flex-1 text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-500"
+                placeholder={isRecording ? "Listening to speech..." : isTranscribing ? "Transcribing speech..." : "Type partner speech or prompt..."}
+                disabled={isRecording || isTranscribing}
+                className="flex-1 text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-500 disabled:opacity-75"
               />
               <button
                 type="submit"
-                className="p-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors"
+                disabled={isRecording || isTranscribing || !partnerInput.trim()}
+                className="p-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors disabled:opacity-50"
                 title="Send partner prompt"
               >
                 <Send className="w-3.5 h-3.5" />
