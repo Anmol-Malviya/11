@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 from app.core.config import settings
 from app.core.database import init_db, close_db
 from app.api.gestures_api import router as gestures_router
+from app.api.remote_camera_api import router as remote_camera_router
 from app.api.v1 import (
     health,
     sessions,
@@ -59,6 +60,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 # Include Routers under /api and /api/v1
 app.include_router(gestures_router, prefix="/api")
+app.include_router(remote_camera_router)
 app.include_router(health.router, prefix="/api/v1")
 app.include_router(sessions.router, prefix="/api/v1")
 app.include_router(transcriptions.router, prefix="/api/v1")
