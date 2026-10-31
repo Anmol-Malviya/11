@@ -16,7 +16,10 @@ from app.schemas.gestures_and_conversations import (
 from app.services.gesture_model import get_gesture_model
 from app.services.gesture_preprocessor import decode_image_from_bytes_or_base64, preprocess_frame_for_gesture
 from app.services.conversation_service import ConversationService
-from app.core.database import get_db
+from app.core.database import get_db, memory_db
+from app.services.mediapipe_contract import mediapipe_contract
+from app.services.elevenlabs_service import elevenlabs_service
+from fastapi import Response
 
 router = APIRouter(tags=["Gestures & Conversations"])
 
@@ -187,3 +190,56 @@ async def delete_conversation(conversation_id: str):
     if not deleted:
         raise HTTPException(status_code=500, detail="Failed to delete conversation.")
     return {"message": "Conversation and associated messages deleted successfully."}
+
+
+# 9. GET /api/gestures/mappings
+@router.get("/gestures/mappings")
+async def get_gesture_mappings():
+    """Returns the 10 application-specific gesture mappings with messages and meanings."""
+    db = get_db()
+    if db is not None:
+        try:
+            custom_doc = await db["gesture_settings"].find_one({"type": "mappings"}, {"_id": 0})
+            if custom_doc and "mappings" in custom_doc:
+                return custom_doc["mappings"]
+        except Exception:
+            pass
+    if hasattr(memory_db, "gesture_mappings") and memory_db.gesture_mappings:
+        return memory_db.gesture_mappings
+    return mediapipe_contract.DEFAULT_MAPPINGS
+
+# 10. PUT /api/gestures/mappings
+@router.put("/gestures/mappings")
+async def update_gesture_mappings(request: Request):
+    """Customizes user gesture-to-message mappings in MongoDB."""
+    body = await request.json()
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Invalid mapping format")
+    db = get_db()
+    if db is not None:
+        try:
+            await db["gesture_settings"].update_one(
+                {"type": "mappings"},
+                {"$set": {"mappings": body, "updated_at": time.time()}},
+                upsert=True
+            )
+        except Exception:
+            pass
+    memory_db.gesture_mappings = body
+    return {"status": "updated", "mappings": body}
+
+# 11. POST /api/gestures/speak
+@router.post("/gestures/speak")
+async def speak_gesture_message(request: Request):
+    """Synthesizes confirmed gesture phrase via ElevenLabs TTS with resilient WAV fallback."""
+    body = await request.json()
+    text = body.get("text", "").strip()
+    voice_id = body.get("voice_id")
+    if not text:
+        raise HTTPException(status_code=400, detail="Text is required")
+    audio_bytes = await elevenlabs_service.generate_speech(text=text, voice_id=voice_id)
+    return Response(
+        content=audio_bytes,
+        media_type="audio/mpeg",
+        headers={"Content-Disposition": "inline; filename=speech.mp3"}
+    )

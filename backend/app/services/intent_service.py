@@ -104,11 +104,11 @@ Do NOT include markdown formatting or backticks. Return raw JSON array only."""
         transcript_lower = transcript.lower()
 
         if language == "hi":
-            if gesture in ["thumbs_up", "head_nod"]:
+            if gesture in ["thumbs_up", "head_nod", "THUMBS_UP"]:
                 cands.append(CandidateReply(candidate_id="cand_1", text="हाँ, बिल्कुल। धन्यवाद।", reason="सकारात्मक इशारा और बातचीत संदर्भ।", confidence=0.88))
                 cands.append(CandidateReply(candidate_id="cand_2", text="हाँ, मुझे यह चाहिए।", reason="सहमति विकल्प।", confidence=0.74))
                 cands.append(CandidateReply(candidate_id="cand_3", text="थोड़ी देर में, कृपया।", reason="वैकल्पिक विचार।", confidence=0.45))
-            elif gesture in ["thumbs_down", "head_shake"]:
+            elif gesture in ["thumbs_down", "head_shake", "THUMBS_DOWN"]:
                 cands.append(CandidateReply(candidate_id="cand_1", text="नहीं, शुक्रिया। मुझे आवश्यकता नहीं है।", reason="नकारात्मक संकेत और संवाद संदर्भ।", confidence=0.91))
                 cands.append(CandidateReply(candidate_id="cand_2", text="अभी नहीं, बाद में।", reason="स्थगन उत्तर।", confidence=0.68))
                 cands.append(CandidateReply(candidate_id="cand_3", text="मुझे कुछ और चाहिए।", reason="विकल्प।", confidence=0.50))
@@ -118,11 +118,11 @@ Do NOT include markdown formatting or backticks. Return raw JSON array only."""
                 cands.append(CandidateReply(candidate_id="cand_3", text="मुझे थोड़ा समय चाहिए।", reason="प्रतीक्षा विकल्प।", confidence=0.55))
 
         elif language == "hi-en":
-            if gesture in ["thumbs_up", "head_nod"]:
+            if gesture in ["thumbs_up", "head_nod", "THUMBS_UP"]:
                 cands.append(CandidateReply(candidate_id="cand_1", text="Haan, definitely. Thanks!", reason="Positive gesture aligned with context.", confidence=0.89))
                 cands.append(CandidateReply(candidate_id="cand_2", text="Yes, please help me with that.", reason="Affirmative agreement.", confidence=0.78))
                 cands.append(CandidateReply(candidate_id="cand_3", text="Thoda time lagega, but yes.", reason="Alternative elaboration.", confidence=0.48))
-            elif gesture in ["thumbs_down", "head_shake"]:
+            elif gesture in ["thumbs_down", "head_shake", "THUMBS_DOWN"]:
                 cands.append(CandidateReply(candidate_id="cand_1", text="Nahi, thank you. I'm fine right now.", reason="Negative gesture aligned with dialogue.", confidence=0.92))
                 cands.append(CandidateReply(candidate_id="cand_2", text="Abhi nahi, thodi der baad.", reason="Deferral option.", confidence=0.70))
                 cands.append(CandidateReply(candidate_id="cand_3", text="Mujhe kuch aur chahiye tha.", reason="Alternative request.", confidence=0.52))
@@ -137,11 +137,11 @@ Do NOT include markdown formatting or backticks. Return raw JSON array only."""
                     cands.append(CandidateReply(candidate_id="cand_3", text="Can you repeat once more?", reason="Clarification fallback.", confidence=0.50))
         
         else: # Standard English
-            if gesture in ["thumbs_up", "head_nod"]:
+            if gesture in ["thumbs_up", "head_nod", "THUMBS_UP"]:
                 cands.append(CandidateReply(candidate_id="cand_1", text="Yes, please. That would be very helpful.", reason="Positive hand/face gesture aligned with dialogue.", confidence=0.90))
                 cands.append(CandidateReply(candidate_id="cand_2", text="Yes, I agree.", reason="Direct confirmation.", confidence=0.80))
                 cands.append(CandidateReply(candidate_id="cand_3", text="Give me just a minute.", reason="Alternative response.", confidence=0.45))
-            elif gesture in ["thumbs_down", "head_shake"]:
+            elif gesture in ["thumbs_down", "head_shake", "THUMBS_DOWN"]:
                 cands.append(CandidateReply(candidate_id="cand_1", text="No, thank you. I am good.", reason="Negative gesture detected.", confidence=0.92))
                 cands.append(CandidateReply(candidate_id="cand_2", text="Not right now, maybe later.", reason="Deferral response.", confidence=0.73))
                 cands.append(CandidateReply(candidate_id="cand_3", text="I'd prefer something else.", reason="Alternative preference.", confidence=0.55))

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   Volume2,
   VolumeX,
@@ -14,15 +14,37 @@ import {
   Mic,
   MicOff,
   Check,
-  ChevronDown
+  ChevronDown,
+  Sparkles,
+  Save,
+  CheckCircle2
 } from "lucide-react";
 import { LiveGestureWebcam } from "@/components/LiveGestureWebcam";
 import {
   gestureApi,
-  GesturePrediction,
   ConversationSummary,
   ConversationMessage
 } from "@/lib/gestureApi";
+import { SupportedGesture } from "@/lib/vision";
+
+interface GestureMappingItem {
+  message: string;
+  meaning: string;
+}
+
+const DEFAULT_10_MAPPINGS: Record<string, GestureMappingItem> = {
+  THUMBS_UP: { message: "Yes, I agree.", meaning: "Okay / Yes" },
+  THUMBS_DOWN: { message: "No, I don't agree.", meaning: "No" },
+  OPEN_PALM: { message: "Please wait.", meaning: "Stop / Wait" },
+  CLOSED_FIST: { message: "I need help.", meaning: "Help" },
+  POINTING: { message: "I want this.", meaning: "This / That" },
+  PEACE_SIGN: { message: "Hello!", meaning: "Greeting" },
+  OK_SIGN: { message: "I understand.", meaning: "Understood" },
+  WAVE: { message: "Excuse me!", meaning: "Attention" },
+  CROSSED_FINGERS: { message: "Please.", meaning: "Request" },
+  ONE_FINGER_UP: { message: "Give me a moment.", meaning: "Wait" },
+  NO_GESTURE: { message: "", meaning: "No gesture" }
+};
 
 export default function GestureAssistantPage() {
   // App state
@@ -32,32 +54,29 @@ export default function GestureAssistantPage() {
   const [loadingMessages, setLoadingMessages] = useState(false);
 
   // Gesture & Phrase state
-  const [recognizedGesture, setRecognizedGesture] = useState<string>("none");
+  const [recognizedGesture, setRecognizedGesture] = useState<SupportedGesture>("NO_GESTURE");
   const [gestureConfidence, setGestureConfidence] = useState<number>(0);
+  const [detectedHandedness, setDetectedHandedness] = useState<string>("Unknown");
   const [phraseText, setPhraseText] = useState<string>("");
   const [isEditingPhrase, setIsEditingPhrase] = useState(false);
-  const [confidenceThreshold, setConfidenceThreshold] = useState<number>(0.60);
+  const [confidenceThreshold, setConfidenceThreshold] = useState<number>(0.65);
 
-  // Configurable phrase mapping
-  const [phraseMap, setPhraseMap] = useState<Record<string, string>>({
-    ok: "Okay",
-    thumbsup: "Yes, I agree",
-    thumbsdown: "No, I disagree",
-    fist: "I need assistance",
-    five: "Hello",
-    blank: ""
-  });
+  // Configurable 10-Gesture mapping
+  const [mappings, setMappings] = useState<Record<string, GestureMappingItem>>(DEFAULT_10_MAPPINGS);
+  const [isSavingMappings, setIsSavingMappings] = useState(false);
+  const [savedSuccessMsg, setSavedSuccessMsg] = useState("");
 
   // Conversation Partner 2-Way Input
   const [partnerInput, setPartnerInput] = useState<string>("");
   const [isSpeechListening, setIsSpeechListening] = useState<boolean>(false);
   const speechRecognitionRef = useRef<unknown>(null);
 
-  // Text-To-Speech
+  // ElevenLabs Text-To-Speech
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
-  const [ttsSupported, setTtsSupported] = useState<boolean>(true);
+  const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
 
-  const loadConversations = React.useCallback(async () => {
+  // Load conversations and persistent mappings on mount
+  const loadConversations = useCallback(async () => {
     try {
       const convs = await gestureApi.listConversations();
       setConversations(convs);
@@ -71,14 +90,21 @@ export default function GestureAssistantPage() {
     }
   }, []);
 
-  // Load conversations on mount
+  const loadMappings = useCallback(async () => {
+    try {
+      const remote = await gestureApi.getGestureMappings();
+      if (remote && Object.keys(remote).length > 0) {
+        setMappings(remote);
+      }
+    } catch (e) {
+      console.warn("Using default local mappings:", e);
+    }
+  }, []);
+
   useEffect(() => {
     loadConversations();
-    // Check SpeechSynthesis support
-    if (typeof window !== "undefined" && !("speechSynthesis" in window)) {
-      setTtsSupported(false);
-    }
-  }, [loadConversations]);
+    loadMappings();
+  }, [loadConversations, loadMappings]);
 
   const selectConversation = async (convId: string) => {
     setActiveConversationId(convId);
@@ -123,52 +149,74 @@ export default function GestureAssistantPage() {
     }
   };
 
-  // Called continuously from LiveGestureWebcam when a gesture passes threshold
-  const handleGestureDetected = (pred: GesturePrediction) => {
-    if (pred.predicted_gesture === "blank") return;
+  // Called when stable hand gesture is detected
+  const handleGestureDetected = (pred: {
+    gesture: SupportedGesture;
+    confidence: number;
+    mapped_phrase: string;
+    handedness: string;
+  }) => {
+    if (pred.gesture === "NO_GESTURE") return;
 
-    setRecognizedGesture(pred.predicted_gesture);
+    setRecognizedGesture(pred.gesture);
     setGestureConfidence(pred.confidence);
+    setDetectedHandedness(pred.handedness);
 
-    const mapped = phraseMap[pred.predicted_gesture] || pred.mapped_phrase;
+    const mapped = mappings[pred.gesture]?.message || pred.mapped_phrase;
     if (mapped && !isEditingPhrase) {
       setPhraseText(mapped);
     }
   };
 
-  // Text-To-Speech implementation
-  const speakCurrentPhrase = (textToSpeak?: string) => {
-    const text = textToSpeak || phraseText;
-    if (!text.trim()) return;
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
-      alert("Text-to-speech is not supported by your current browser.");
-      return;
+  // Speak confirmed phrase using ElevenLabs with browser TTS fallback
+  const speakConfirmedPhrase = async (textToSpeak?: string) => {
+    const text = (textToSpeak || phraseText).trim();
+    if (!text) return;
+
+    setIsSpeaking(true);
+    try {
+      const audioBlob = await gestureApi.speakGestureMessage(text);
+      const audioUrl = URL.createObjectURL(audioBlob);
+      if (audioPlayerRef.current) {
+        audioPlayerRef.current.src = audioUrl;
+        audioPlayerRef.current.onended = () => setIsSpeaking(false);
+        audioPlayerRef.current.onerror = () => setIsSpeaking(false);
+        await audioPlayerRef.current.play();
+      }
+    } catch (err) {
+      console.warn("ElevenLabs TTS notice, falling back to local SpeechSynthesis:", err);
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = 0.95;
+        utterance.pitch = 1.0;
+        utterance.onstart = () => setIsSpeaking(true);
+        utterance.onend = () => setIsSpeaking(false);
+        utterance.onerror = () => setIsSpeaking(false);
+        window.speechSynthesis.speak(utterance);
+      } else {
+        setIsSpeaking(false);
+      }
     }
-
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 0.95;
-    utterance.pitch = 1.0;
-    utterance.onstart = () => setIsSpeaking(true);
-    utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = () => setIsSpeaking(false);
-
-    window.speechSynthesis.speak(utterance);
   };
 
   const cancelSpeech = () => {
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.pause();
+      audioPlayerRef.current.currentTime = 0;
+    }
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
-      setIsSpeaking(false);
     }
+    setIsSpeaking(false);
   };
 
-  // User confirms phrase to send to conversation thread
+  // User confirms phrase to send to conversation thread and speak aloud
   const handleConfirmAndSendUserMessage = async () => {
     if (!phraseText.trim()) return;
 
-    // 1. Speak phrase immediately through TTS
-    speakCurrentPhrase(phraseText);
+    // 1. Speak phrase immediately through ElevenLabs
+    speakConfirmedPhrase(phraseText);
 
     // 2. Add message to database & thread
     try {
@@ -176,13 +224,28 @@ export default function GestureAssistantPage() {
         text: phraseText.trim(),
         speaker: "user",
         modality: "gesture",
-        gesture_label: recognizedGesture !== "none" ? recognizedGesture : null,
+        gesture_label: recognizedGesture !== "NO_GESTURE" ? recognizedGesture : null,
         confidence: gestureConfidence > 0 ? gestureConfidence : null
       });
       setMessages((prev) => [...prev, msg]);
       setIsEditingPhrase(false);
     } catch (e) {
       console.error("Failed to post message:", e);
+    }
+  };
+
+  // Save customized mappings to MongoDB
+  const handleSaveMappings = async () => {
+    setIsSavingMappings(true);
+    setSavedSuccessMsg("");
+    try {
+      await gestureApi.updateGestureMappings(mappings);
+      setSavedSuccessMsg("Mappings saved to database successfully.");
+      setTimeout(() => setSavedSuccessMsg(""), 3000);
+    } catch (e) {
+      console.error("Save mappings failed:", e);
+    } finally {
+      setIsSavingMappings(false);
     }
   };
 
@@ -252,14 +315,15 @@ export default function GestureAssistantPage() {
         <div>
           <div className="flex items-center space-x-2">
             <h1 className="text-lg font-bold text-slate-900 tracking-tight">
-              Gesture Recognition Studio
+              Functional Hand Gesture Communication Studio
             </h1>
-            <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full bg-blue-50 border border-blue-200 text-blue-700 text-[11px] font-medium">
-              <span>CNN 100×120</span>
+            <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full bg-blue-50 border border-blue-200 text-blue-700 text-[11px] font-semibold">
+              <Sparkles className="w-3 h-3 text-blue-600" />
+              <span>MediaPipe 10-Gesture Kinematics</span>
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Real-time hand gesture classification with live conversational dialogue logging
+            Real-time hand landmarks, temporal gesture detection (WAVE), and ElevenLabs vocalization
           </p>
         </div>
 
@@ -290,7 +354,7 @@ export default function GestureAssistantPage() {
           <LiveGestureWebcam
             onGestureRecognized={handleGestureDetected}
             confidenceThreshold={confidenceThreshold}
-            phraseMapping={phraseMap}
+            phraseMapping={mappings}
           />
 
           {/* User Spoken Phrase Composer */}
@@ -299,13 +363,14 @@ export default function GestureAssistantPage() {
               <div className="flex items-center space-x-2">
                 <span className="w-2 h-2 rounded-full bg-blue-600" />
                 <h2 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                  Recognized Expression Composer
+                  Recognized Expression & Spoken Message
                 </h2>
               </div>
-              {recognizedGesture !== "none" && (
-                <div className="flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-slate-100 border border-slate-200 text-slate-700 text-xs font-mono">
-                  <span>Detected: <strong>{recognizedGesture}</strong></span>
-                  <span className="text-blue-600">({(gestureConfidence * 100).toFixed(0)}%)</span>
+              {recognizedGesture !== "NO_GESTURE" && (
+                <div className="flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-blue-50 border border-blue-200 text-blue-800 text-xs font-mono">
+                  <span>Detected: <strong>{recognizedGesture.replace("_", " ")}</strong></span>
+                  <span className="text-slate-400">({detectedHandedness})</span>
+                  <span className="text-blue-600 font-bold">{(gestureConfidence * 100).toFixed(0)}%</span>
                 </div>
               )}
             </div>
@@ -318,7 +383,7 @@ export default function GestureAssistantPage() {
                   setPhraseText(e.target.value);
                   setIsEditingPhrase(true);
                 }}
-                placeholder="Show a hand gesture inside the target ROI or type here directly..."
+                placeholder="Show a hand gesture in front of the camera or edit the message here before speaking..."
                 rows={2}
                 className="w-full text-base sm:text-xl font-bold text-slate-900 p-3.5 rounded-xl border border-slate-200 focus:border-blue-600 focus:outline-none transition resize-none bg-slate-50/50"
               />
@@ -328,12 +393,12 @@ export default function GestureAssistantPage() {
             <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
               <div className="flex items-center space-x-2">
                 <button
-                  onClick={() => speakCurrentPhrase()}
+                  onClick={() => speakConfirmedPhrase()}
                   disabled={!phraseText.trim() || isSpeaking}
                   className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs flex items-center space-x-1.5 shadow-xs transition-colors disabled:opacity-50"
                 >
                   <Volume2 className="w-3.5 h-3.5" />
-                  <span>{isSpeaking ? "Speaking..." : "Speak Expression"}</span>
+                  <span>{isSpeaking ? "Speaking..." : "Confirm & Speak (ElevenLabs)"}</span>
                 </button>
 
                 {isSpeaking && (
@@ -349,7 +414,7 @@ export default function GestureAssistantPage() {
                 <button
                   onClick={() => {
                     setPhraseText("");
-                    setRecognizedGesture("none");
+                    setRecognizedGesture("NO_GESTURE");
                     setIsEditingPhrase(false);
                   }}
                   className="px-3 py-2 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 text-xs font-medium transition"
@@ -364,53 +429,83 @@ export default function GestureAssistantPage() {
                 className="px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs flex items-center space-x-1.5 shadow-xs transition-colors disabled:opacity-50"
               >
                 <Check className="w-3.5 h-3.5" />
-                <span>Confirm & Post to Thread</span>
+                <span>Confirm & Post to Dialogue</span>
               </button>
             </div>
           </div>
 
-          {/* Configurable Phrase Mapping Drawer */}
+          {/* Configurable 10-Gesture Mapping Drawer */}
           <details className="group app-card p-4 transition-all">
             <summary className="flex items-center justify-between cursor-pointer font-bold text-xs text-slate-700 uppercase tracking-wider">
               <div className="flex items-center space-x-2">
-                <SlidersHorizontal className="w-3.5 h-3.5 text-slate-400" />
-                <span>Configurable Gesture-to-Phrase Mappings</span>
+                <SlidersHorizontal className="w-3.5 h-3.5 text-blue-600" />
+                <span>10 Configurable Gesture-to-Message Mappings</span>
               </div>
               <ChevronDown className="w-4 h-4 text-slate-400 group-open:rotate-180 transition-transform" />
             </summary>
             
             <div className="mt-4 pt-3 border-t border-slate-100 space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {Object.keys(phraseMap).filter(k => k !== "blank").map((gestureKey) => (
-                  <div key={gestureKey} className="flex flex-col space-y-1">
-                    <label className="text-[10px] font-semibold text-slate-500 uppercase font-mono">
-                      {gestureKey}
-                    </label>
+                {Object.keys(mappings).filter(k => k !== "NO_GESTURE").map((gestureKey) => (
+                  <div key={gestureKey} className="flex flex-col space-y-1 p-2.5 rounded-xl bg-slate-50 border border-slate-200/80">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-slate-800 font-mono uppercase">
+                        {gestureKey.replace("_", " ")}
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-medium">
+                        {mappings[gestureKey]?.meaning}
+                      </span>
+                    </div>
                     <input
                       type="text"
-                      value={phraseMap[gestureKey]}
+                      value={mappings[gestureKey]?.message || ""}
                       onChange={(e) => {
                         const val = e.target.value;
-                        setPhraseMap(prev => ({ ...prev, [gestureKey]: val }));
+                        setMappings(prev => ({
+                          ...prev,
+                          [gestureKey]: {
+                            ...prev[gestureKey],
+                            message: val
+                          }
+                        }));
                       }}
-                      className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium focus:border-blue-500 focus:outline-none"
+                      className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-800 focus:border-blue-500 focus:outline-none"
                     />
                   </div>
                 ))}
               </div>
 
-              {/* Confidence Threshold slider */}
-              <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
-                <span className="text-slate-600 font-medium">Confidence Filter: {(confidenceThreshold * 100).toFixed(0)}%</span>
-                <input
-                  type="range"
-                  min="0.30"
-                  max="0.95"
-                  step="0.05"
-                  value={confidenceThreshold}
-                  onChange={(e) => setConfidenceThreshold(parseFloat(e.target.value))}
-                  className="w-40"
-                />
+              {/* Confidence Threshold slider & Save button */}
+              <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 text-xs">
+                <div className="flex items-center space-x-3">
+                  <span className="text-slate-600 font-medium">Stability Threshold: {(confidenceThreshold * 100).toFixed(0)}%</span>
+                  <input
+                    type="range"
+                    min="0.40"
+                    max="0.95"
+                    step="0.05"
+                    value={confidenceThreshold}
+                    onChange={(e) => setConfidenceThreshold(parseFloat(e.target.value))}
+                    className="w-32"
+                  />
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  {savedSuccessMsg && (
+                    <span className="text-emerald-600 text-xs font-medium flex items-center space-x-1">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>{savedSuccessMsg}</span>
+                    </span>
+                  )}
+                  <button
+                    onClick={handleSaveMappings}
+                    disabled={isSavingMappings}
+                    className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs flex items-center space-x-1.5 transition-colors disabled:opacity-50"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    <span>{isSavingMappings ? "Saving..." : "Save to MongoDB"}</span>
+                  </button>
+                </div>
               </div>
             </div>
           </details>
@@ -440,7 +535,7 @@ export default function GestureAssistantPage() {
               ) : messages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-center text-slate-400 space-y-2">
                   <MessageSquare className="w-8 h-8 text-slate-300" />
-                  <p>No messages yet. Send a gesture phrase or have your partner type below.</p>
+                  <p>No messages yet. Confirm a recognized gesture or have your partner type below.</p>
                 </div>
               ) : (
                 messages.map((m) => {
@@ -452,12 +547,12 @@ export default function GestureAssistantPage() {
                     >
                       <div className="flex items-center space-x-1.5 text-[10px] text-slate-400 mb-1 px-1">
                         <span className="font-semibold text-slate-700">
-                          {isUser ? "You" : "Partner"}
+                          {isUser ? "You (Spoken)" : "Partner"}
                         </span>
                         <span>•</span>
                         <span>{new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
                         {m.gesture_label && (
-                          <span className="bg-slate-100 text-slate-700 px-1.5 py-0.2 rounded font-mono border border-slate-200">
+                          <span className="bg-blue-50 text-blue-700 px-1.5 py-0.2 rounded font-mono border border-blue-200">
                             {m.gesture_label}
                           </span>
                         )}
@@ -537,6 +632,9 @@ export default function GestureAssistantPage() {
           </div>
         </div>
       </div>
+
+      {/* Hidden Audio Player for ElevenLabs Speech */}
+      <audio ref={audioPlayerRef} className="hidden" />
     </div>
   );
 }

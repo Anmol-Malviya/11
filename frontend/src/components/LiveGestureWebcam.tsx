@@ -3,12 +3,18 @@
 import React, { useRef, useEffect, useState, useCallback } from "react";
 import { Camera, CameraOff, RefreshCw, AlertCircle, Eye, Smartphone, QrCode } from "lucide-react";
 import { gestureApi, GesturePrediction } from "@/lib/gestureApi";
+import { visionProcessor, SupportedGesture, LandmarkPoint } from "@/lib/vision";
 import { PhoneCameraModal } from "@/components/PhoneCameraModal";
 
 interface LiveGestureWebcamProps {
-  onGestureRecognized: (pred: GesturePrediction) => void;
+  onGestureRecognized: (pred: {
+    gesture: SupportedGesture;
+    confidence: number;
+    mapped_phrase: string;
+    handedness: string;
+  }) => void;
   confidenceThreshold?: number;
-  phraseMapping?: Record<string, string>;
+  phraseMapping?: Record<string, { message: string; meaning: string }>;
 }
 
 export function LiveGestureWebcam({
@@ -18,38 +24,62 @@ export function LiveGestureWebcam({
 }: LiveGestureWebcamProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const remoteImgRef = useRef<HTMLImageElement | null>(null);
+  const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const [cameraSource, setCameraSource] = useState<"laptop" | "phone">("laptop");
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
-  const [isProcessing, setIsProcessing] = useState<boolean>(false);
-  const [stableGesture, setStableGesture] = useState<string>("blank");
-  const [stableConfidence, setStableConfidence] = useState<number>(0);
+  const [modelLoading, setModelLoading] = useState<boolean>(true);
 
-  // Phone remote camera pairing (Token-based)
+  // Stable states
+  const [activeGesture, setActiveGesture] = useState<SupportedGesture>("NO_GESTURE");
+  const [activeConfidence, setActiveConfidence] = useState<number>(0);
+  const [handedness, setHandedness] = useState<string>("Unknown");
+  const [handPresent, setHandPresent] = useState<boolean>(false);
+
+  // Phone remote camera pairing
   const [showQrModal, setShowQrModal] = useState<boolean>(false);
   const [isPhoneConnected, setIsPhoneConnected] = useState<boolean>(false);
   const [pairingToken, setPairingToken] = useState<string>("");
   const [remoteFrameSrc, setRemoteFrameSrc] = useState<string | null>(null);
 
-  // Temporal smoothing queue (last 5 detections)
-  const historyRef = useRef<{ gesture: string; confidence: number; timestamp: number }[]>([]);
+  // Temporal smoothing & trigger state (sliding window of 6 frames)
+  const historyRef = useRef<{ gesture: SupportedGesture; confidence: number; timestamp: number }[]>([]);
+  const lastTriggeredGestureRef = useRef<SupportedGesture>("NO_GESTURE");
   const streamRef = useRef<MediaStream | null>(null);
 
-  // Generate 6-digit alphanumeric token on mount
+  // MediaPipe hand skeleton connections (21 landmarks)
+  const HAND_CONNECTIONS = [
+    [0, 1], [1, 2], [2, 3], [3, 4], // Thumb
+    [0, 5], [5, 6], [6, 7], [7, 8], // Index
+    [5, 9], [9, 10], [10, 11], [11, 12], // Middle
+    [9, 13], [13, 14], [14, 15], [15, 16], // Ring
+    [13, 17], [17, 18], [18, 19], [19, 20], // Pinky
+    [0, 17] // Palm base
+  ];
+
+  // Initialize MediaPipe Recognizer on mount
+  useEffect(() => {
+    let isCancelled = false;
+    async function loadModel() {
+      setModelLoading(true);
+      await visionProcessor.initializeRecognizer();
+      if (!isCancelled) setModelLoading(false);
+    }
+    loadModel();
+    return () => { isCancelled = true; };
+  }, []);
+
+  // Generate pairing token for remote camera
   useEffect(() => {
     const token = Math.random().toString(36).substring(2, 8).toUpperCase();
     setPairingToken(token);
-    
-    // Register laptop session
     fetch(`/api/remote-camera/session/${token}/register?role=laptop`, { method: "POST" }).catch(() => {});
   }, []);
 
-  // Poll for phone frames using HTTP token endpoint (works across 4G/5G, hotspots, and any network)
+  // Poll for phone frames if using phone camera
   useEffect(() => {
     if (!pairingToken) return;
-
     let isPolling = true;
     const pollInterval = setInterval(async () => {
       if (!isPolling) return;
@@ -61,19 +91,13 @@ export function LiveGestureWebcam({
             setIsPhoneConnected(true);
             setCameraSource("phone");
             stopLaptopCamera();
-
-            if (data.image) {
-              setRemoteFrameSrc(data.image);
-            }
-            if (data.prediction) {
-              handlePredictionResult(data.prediction);
-            }
+            if (data.image) setRemoteFrameSrc(data.image);
           } else {
             setIsPhoneConnected(false);
           }
         }
-      } catch (err) {}
-    }, 250); // Poll 4 times/sec
+      } catch {}
+    }, 250);
 
     return () => {
       isPolling = false;
@@ -81,57 +105,12 @@ export function LiveGestureWebcam({
     };
   }, [pairingToken]);
 
-  const handlePredictionResult = (pred: GesturePrediction) => {
-    if (phraseMapping && phraseMapping[pred.predicted_gesture]) {
-      pred.mapped_phrase = phraseMapping[pred.predicted_gesture];
-    }
-
-    const now = Date.now();
-    historyRef.current.push({
-      gesture: pred.predicted_gesture,
-      confidence: pred.confidence,
-      timestamp: now
-    });
-    if (historyRef.current.length > 5) {
-      historyRef.current.shift();
-    }
-
-    const counts: Record<string, number> = {};
-    let totalConf = 0;
-    historyRef.current.forEach((item) => {
-      counts[item.gesture] = (counts[item.gesture] || 0) + 1;
-      totalConf += item.confidence;
-    });
-
-    let highestGesture = pred.predicted_gesture;
-    let maxCount = 0;
-    Object.entries(counts).forEach(([g, count]) => {
-      if (count > maxCount) {
-        maxCount = count;
-        highestGesture = g;
-      }
-    });
-
-    const avgConfidence = totalConf / historyRef.current.length;
-    setStableGesture(highestGesture);
-    setStableConfidence(avgConfidence);
-
-    if (pred.is_reliable || (avgConfidence >= confidenceThreshold && highestGesture !== "blank")) {
-      onGestureRecognized({
-        ...pred,
-        predicted_gesture: highestGesture,
-        confidence: avgConfidence,
-        mapped_phrase: (phraseMapping && phraseMapping[highestGesture]) || pred.mapped_phrase
-      });
-    }
-  };
-
   // Start laptop webcam
   const startLaptopCamera = async () => {
     setCameraError(null);
     setCameraSource("laptop");
     try {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      if (!navigator.mediaDevices?.getUserMedia) {
         throw new Error("Webcam access is not supported by this browser.");
       }
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -169,60 +148,161 @@ export function LiveGestureWebcam({
       videoRef.current.srcObject = null;
     }
     setIsCameraActive(false);
+    clearOverlay();
   };
 
-  // Capture single frame from laptop webcam: extracts centered ROI corresponding to the green viewfinder box
-  const captureAndPredict = useCallback(async () => {
-    if (cameraSource !== "laptop" || !videoRef.current || !canvasRef.current || isProcessing) return;
-    const video = videoRef.current;
-    const vw = video.videoWidth;
-    const vh = video.videoHeight;
-    if (vw === 0 || vh === 0) return;
+  const clearOverlay = () => {
+    const canvas = overlayCanvasRef.current;
+    if (canvas) {
+      const ctx = canvas.getContext("2d");
+      if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+  };
 
-    const canvas = canvasRef.current;
-    // Extract centered square ROI matching viewfinder box (50% of min dimension)
-    const roiSize = Math.floor(Math.min(vw, vh) * 0.50);
-    const sx = Math.floor((vw - roiSize) / 2);
-    const sy = Math.floor((vh - roiSize) / 2);
-
-    canvas.width = 240;
-    canvas.height = 240;
+  // Draw hand skeleton landmark overlay
+  const drawLandmarks = (landmarks: LandmarkPoint[], width: number, height: number) => {
+    const canvas = overlayCanvasRef.current;
+    if (!canvas) return;
+    canvas.width = width;
+    canvas.height = height;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    // Draw the cropped ROI directly onto the canvas
-    ctx.drawImage(video, sx, sy, roiSize, roiSize, 0, 0, canvas.width, canvas.height);
-    const base64Data = canvas.toDataURL("image/jpeg", 0.75);
+    ctx.clearRect(0, 0, width, height);
 
-    setIsProcessing(true);
-    try {
-      const pred = await gestureApi.predictGesture(base64Data, confidenceThreshold);
-      handlePredictionResult(pred);
-    } catch (e) {
-      console.error("Frame inference error:", e);
-    } finally {
-      setIsProcessing(false);
+    // Flip horizontally to match mirrored user webcam
+    ctx.save();
+    ctx.scale(-1, 1);
+    ctx.translate(-width, 0);
+
+    // Draw connection lines
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "rgba(59, 130, 246, 0.85)"; // Blue accent
+    ctx.lineCap = "round";
+
+    for (const [startIdx, endIdx] of HAND_CONNECTIONS) {
+      const p1 = landmarks[startIdx];
+      const p2 = landmarks[endIdx];
+      if (p1 && p2) {
+        ctx.beginPath();
+        ctx.moveTo(p1.x * width, p1.y * height);
+        ctx.lineTo(p2.x * width, p2.y * height);
+        ctx.stroke();
+      }
     }
-  }, [cameraSource, confidenceThreshold, isProcessing]);
 
-  // Continuous loop for laptop webcam
-  useEffect(() => {
-    let intervalId: NodeJS.Timeout | null = null;
-    if (isCameraActive && cameraSource === "laptop") {
-      intervalId = setInterval(() => {
-        captureAndPredict();
-      }, 250); // 4 FPS
+    // Draw landmark joints
+    for (let i = 0; i < landmarks.length; i++) {
+      const p = landmarks[i];
+      ctx.beginPath();
+      ctx.arc(p.x * width, p.y * height, i % 4 === 0 ? 5 : 3.5, 0, 2 * Math.PI);
+      ctx.fillStyle = i === 4 || i === 8 || i === 12 || i === 16 || i === 20 
+        ? "rgb(239, 68, 68)" // Fingertips in coral red
+        : "rgb(255, 255, 255)";
+      ctx.fill();
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = "rgb(15, 23, 42)";
+      ctx.stroke();
     }
-    return () => {
-      if (intervalId) clearInterval(intervalId);
-    };
-  }, [isCameraActive, cameraSource, captureAndPredict]);
 
+    ctx.restore();
+  };
+
+  // Continuous frame processing loop
   useEffect(() => {
-    return () => {
-      stopLaptopCamera();
+    if (!isCameraActive || modelLoading) return;
+
+    let isRunning = true;
+    let animId: number;
+
+    const processFrame = () => {
+      if (!isRunning) return;
+
+      const video = videoRef.current;
+      if (video && video.readyState >= 2 && !video.paused && !video.ended && video.videoWidth > 0) {
+        const now = performance.now();
+        const result = visionProcessor.detectForVideo(video, now);
+
+        setHandPresent(result.handDetected);
+        setHandedness(result.handedness);
+
+        if (result.handDetected && result.landmarks.length > 0) {
+          drawLandmarks(result.landmarks, video.videoWidth, video.videoHeight);
+        } else {
+          clearOverlay();
+        }
+
+        // Temporal smoothing across last 6 frames (~200ms)
+        const currentGesture = result.gestureLabel;
+        const currentConf = result.confidence;
+
+        historyRef.current.push({
+          gesture: currentGesture,
+          confidence: currentConf,
+          timestamp: now
+        });
+        if (historyRef.current.length > 6) {
+          historyRef.current.shift();
+        }
+
+        // Count occurrences
+        const counts: Record<string, number> = {};
+        let totalConf = 0;
+        historyRef.current.forEach(item => {
+          counts[item.gesture] = (counts[item.gesture] || 0) + 1;
+          totalConf += item.confidence;
+        });
+
+        let highestGesture: SupportedGesture = "NO_GESTURE";
+        let maxCount = 0;
+        Object.entries(counts).forEach(([g, cnt]) => {
+          if (cnt > maxCount) {
+            maxCount = cnt;
+            highestGesture = g as SupportedGesture;
+          }
+        });
+
+        const avgConfidence = totalConf / historyRef.current.length;
+        setActiveGesture(highestGesture);
+        setActiveConfidence(avgConfidence);
+
+        // Reset triggered gesture if hand disappeared or reverted to NO_GESTURE
+        if (!result.handDetected || highestGesture === "NO_GESTURE") {
+          lastTriggeredGestureRef.current = "NO_GESTURE";
+        }
+
+        // Stability trigger:
+        // Must appear in at least 4 of 6 frames with confidence >= threshold
+        // Prevent duplicate trigger for continuous static hold
+        if (
+          highestGesture !== "NO_GESTURE" &&
+          maxCount >= 4 &&
+          avgConfidence >= confidenceThreshold &&
+          highestGesture !== lastTriggeredGestureRef.current
+        ) {
+          lastTriggeredGestureRef.current = highestGesture;
+
+          const phrase = phraseMapping?.[highestGesture]?.message || "";
+          onGestureRecognized({
+            gesture: highestGesture,
+            confidence: avgConfidence,
+            mapped_phrase: phrase,
+            handedness: result.handedness
+          });
+        }
+      }
+
+      animId = requestAnimationFrame(processFrame);
     };
-  }, []);
+
+    animId = requestAnimationFrame(processFrame);
+
+    return () => {
+      isRunning = false;
+      cancelAnimationFrame(animId);
+      clearOverlay();
+    };
+  }, [isCameraActive, modelLoading, confidenceThreshold, phraseMapping, onGestureRecognized]);
 
   return (
     <div className="flex flex-col rounded-3xl bg-slate-900 border border-slate-800 text-white p-4 shadow-xl relative overflow-hidden">
@@ -242,13 +322,12 @@ export function LiveGestureWebcam({
               : "Camera Standby"}
           </span>
           <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-mono">
-            CNN (100x120)
+            {modelLoading ? "Loading MediaPipe..." : "MediaPipe Active"}
           </span>
         </div>
 
         {/* Action Controls */}
         <div className="flex items-center space-x-2">
-          {/* QR Code Phone Camera Button with Token */}
           <button
             onClick={() => setShowQrModal(true)}
             className="px-3 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 text-xs font-semibold flex items-center space-x-1.5 transition active:scale-95"
@@ -258,175 +337,144 @@ export function LiveGestureWebcam({
             <span>{isPhoneConnected ? `Phone Paired (${pairingToken}) ✓` : "Use Phone Camera (Token QR)"}</span>
           </button>
 
-          {cameraSource === "laptop" && !isCameraActive ? (
+          {!isCameraActive ? (
             <button
               onClick={startLaptopCamera}
-              className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white text-xs font-medium flex items-center space-x-1.5 shadow-sm transition"
+              disabled={modelLoading}
+              className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md transition active:scale-95 flex items-center space-x-1.5 disabled:opacity-50"
             >
               <Camera className="w-3.5 h-3.5" />
-              <span>Start Laptop Cam</span>
+              <span>Start Webcam</span>
             </button>
-          ) : cameraSource === "laptop" && isCameraActive ? (
-            <>
-              <button
-                onClick={captureAndPredict}
-                disabled={isProcessing}
-                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 text-xs font-medium flex items-center space-x-1 transition disabled:opacity-50"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isProcessing ? "animate-spin" : ""}`} />
-                <span>Capture</span>
-              </button>
-              <button
-                onClick={stopLaptopCamera}
-                className="px-3.5 py-1.5 rounded-xl bg-rose-600/90 hover:bg-rose-600 active:scale-95 text-white text-xs font-medium flex items-center space-x-1.5 shadow-sm transition"
-              >
-                <CameraOff className="w-3.5 h-3.5" />
-                <span>Stop</span>
-              </button>
-            </>
           ) : (
             <button
-              onClick={() => {
-                setCameraSource("laptop");
-                startLaptopCamera();
-              }}
-              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition"
+              onClick={stopLaptopCamera}
+              className="px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-md transition active:scale-95 flex items-center space-x-1.5"
             >
-              Switch to Laptop Cam
+              <CameraOff className="w-3.5 h-3.5" />
+              <span>Stop Camera</span>
             </button>
           )}
         </div>
       </div>
 
-      {/* Camera Viewport */}
-      <div className="relative aspect-video w-full rounded-2xl bg-black/60 overflow-hidden mt-3 flex items-center justify-center border border-slate-800/80">
-        {/* Laptop Video Feed */}
-        <video
-          ref={videoRef}
-          playsInline
-          muted
-          className={`w-full h-full object-cover transform -scale-x-100 ${
-            cameraSource === "laptop" && isCameraActive ? "block" : "hidden"
-          }`}
-        />
-        <canvas ref={canvasRef} className="hidden" />
+      {/* Main Video & Landmark Overlay Viewport */}
+      <div className="relative mt-3 aspect-video bg-black rounded-2xl overflow-hidden flex items-center justify-center border border-slate-800">
+        {/* Laptop Video */}
+        {cameraSource === "laptop" && (
+          <video
+            ref={videoRef}
+            playsInline
+            muted
+            className={`w-full h-full object-cover transform -scale-x-100 ${isCameraActive ? "block" : "hidden"}`}
+          />
+        )}
 
-        {/* Remote Phone Camera Stream Image */}
-        {cameraSource === "phone" && remoteFrameSrc && (
+        {/* Phone Remote Camera Frame */}
+        {cameraSource === "phone" && isPhoneConnected && remoteFrameSrc && (
           <img
-            ref={remoteImgRef}
             src={remoteFrameSrc}
-            alt="Remote Phone Camera Stream"
+            alt="Remote Phone Camera Feed"
             className="w-full h-full object-contain"
           />
         )}
 
-        {/* Hand Overlay Target Guide Box */}
-        {((cameraSource === "laptop" && isCameraActive) || (cameraSource === "phone" && isPhoneConnected)) && (
-          <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-            <div className="w-48 h-48 sm:w-56 sm:h-56 border-2 border-dashed border-emerald-400/70 rounded-2xl flex flex-col justify-between p-2 shadow-[0_0_20px_rgba(52,211,153,0.15)]">
-              <span className="text-[10px] text-emerald-400 uppercase tracking-widest font-mono bg-black/50 px-1.5 py-0.5 rounded self-start">
-                ROI (100x120)
-              </span>
-              <span className="text-[10px] text-emerald-400/80 text-center font-sans">
-                Position gesture inside target
-              </span>
+        {/* Transparent Canvas for Hand Landmark Visualization */}
+        <canvas
+          ref={overlayCanvasRef}
+          className="absolute inset-0 w-full h-full pointer-events-none"
+        />
+
+        {/* Inactive Standby Screen */}
+        {!isCameraActive && !(cameraSource === "phone" && isPhoneConnected) && (
+          <div className="flex flex-col items-center justify-center text-center p-6 space-y-3">
+            <div className="w-16 h-16 rounded-full bg-slate-800/80 flex items-center justify-center text-slate-400">
+              <Camera className="w-8 h-8" />
             </div>
+            <div>
+              <p className="text-sm font-semibold text-slate-300">Webcam Inactive</p>
+              <p className="text-xs text-slate-500 max-w-xs mt-1">
+                Click &ldquo;Start Webcam&rdquo; above to recognize all 10 hand gestures in real time with MediaPipe landmarks.
+              </p>
+            </div>
+            <button
+              onClick={startLaptopCamera}
+              disabled={modelLoading}
+              className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-md transition active:scale-95 disabled:opacity-50"
+            >
+              {modelLoading ? "Loading MediaPipe..." : "Enable Camera Now"}
+            </button>
           </div>
         )}
 
-        {/* Standby / Phone Connect Prompt */}
-        {!isCameraActive && (!isPhoneConnected || cameraSource === "laptop") && !cameraError && (
-          <div className="text-center p-6 space-y-3">
-            <div className="w-12 h-12 rounded-2xl bg-slate-800 flex items-center justify-center mx-auto text-slate-400">
-              <Eye className="w-6 h-6" />
-            </div>
-            <p className="text-sm text-slate-300 font-medium">Camera is currently paused.</p>
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-2 pt-1">
-              <button
-                onClick={startLaptopCamera}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-xs font-semibold text-white shadow-sm transition"
-              >
-                Start Laptop Camera
-              </button>
-              <button
-                onClick={() => setShowQrModal(true)}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-xs font-semibold text-indigo-300 flex items-center space-x-1.5 transition"
-              >
-                <Smartphone className="w-3.5 h-3.5" />
-                <span>Use Phone Camera (Token QR)</span>
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Camera Error Message with One-click Phone Fallback */}
+        {/* Camera Permission Denied Error */}
         {cameraError && (
-          <div className="text-center p-6 space-y-3 bg-rose-950/40 rounded-2xl border border-rose-800/50 max-w-md m-4">
-            <AlertCircle className="w-8 h-8 text-rose-400 mx-auto" />
-            <p className="text-sm font-semibold text-rose-200">{cameraError}</p>
-            <div className="flex items-center justify-center space-x-2 pt-1">
-              <button
-                onClick={startLaptopCamera}
-                className="px-3.5 py-1.5 bg-rose-700 hover:bg-rose-600 rounded-xl text-xs font-semibold text-white"
-              >
-                Retry Laptop Cam
-              </button>
-              <button
-                onClick={() => setShowQrModal(true)}
-                className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-xs font-semibold text-white flex items-center space-x-1"
-              >
-                <QrCode className="w-3.5 h-3.5" />
-                <span>Scan Phone QR</span>
-              </button>
-            </div>
+          <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-sm p-6 flex flex-col items-center justify-center text-center space-y-3">
+            <AlertCircle className="w-10 h-10 text-rose-500" />
+            <p className="text-sm text-rose-300 font-semibold">{cameraError}</p>
+            <button
+              onClick={() => setShowQrModal(true)}
+              className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-md transition flex items-center space-x-2"
+            >
+              <QrCode className="w-4 h-4" />
+              <span>Scan Phone QR</span>
+            </button>
           </div>
         )}
 
-        {/* Real-time gesture badge overlay */}
-        {((cameraSource === "laptop" && isCameraActive) || (cameraSource === "phone" && isPhoneConnected)) && (
+        {/* Real-Time Gesture HUD Overlay */}
+        {isCameraActive && (
           <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between pointer-events-none">
             <div className="bg-slate-900/90 backdrop-blur-md border border-slate-700/80 px-3.5 py-2 rounded-xl flex items-center space-x-3 text-xs shadow-lg">
               <div>
                 <span className="text-slate-400 block text-[10px] uppercase font-mono">
-                  {cameraSource === "phone" ? "Phone Gesture" : "Laptop Gesture"}
+                  {handPresent ? `${handedness} Hand` : "Hand Detector"}
                 </span>
-                <span className="font-bold text-white text-sm capitalize">
-                  {stableGesture !== "blank" ? stableGesture : "Waiting for gesture..."}
+                <span className="font-bold text-white text-sm">
+                  {activeGesture !== "NO_GESTURE" ? activeGesture.replace("_", " ") : "NO_GESTURE"}
                 </span>
               </div>
               <div className="border-l border-slate-700 pl-3">
                 <span className="text-slate-400 block text-[10px] uppercase font-mono">Confidence</span>
-                <span className={`font-mono font-bold ${stableConfidence >= confidenceThreshold ? "text-emerald-400" : "text-amber-400"}`}>
-                  {(stableConfidence * 100).toFixed(1)}%
+                <span className={`font-mono font-bold ${activeConfidence >= confidenceThreshold ? "text-emerald-400" : "text-amber-400"}`}>
+                  {(activeConfidence * 100).toFixed(1)}%
                 </span>
               </div>
             </div>
 
-            {cameraSource === "phone" && isPhoneConnected && (
-              <div className="bg-emerald-950/80 border border-emerald-700/80 text-emerald-300 px-2.5 py-1 rounded-lg text-[11px] flex items-center space-x-1.5">
-                <div className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                <span>Token: {pairingToken}</span>
-              </div>
-            )}
+            <div className="bg-slate-900/90 backdrop-blur-md border border-slate-700/80 px-3 py-1.5 rounded-xl text-[11px] text-slate-300 flex items-center space-x-2">
+              <span className={`w-2 h-2 rounded-full ${handPresent ? "bg-emerald-400" : "bg-slate-500"}`} />
+              <span>{handPresent ? "Hand Tracked" : "No Hand in Frame"}</span>
+            </div>
           </div>
         )}
       </div>
 
-      {/* Class Legend Pills */}
+      {/* 10 Supported Gesture Legend Pills */}
       <div className="mt-3 pt-3 border-t border-slate-800 flex flex-wrap gap-1.5 text-xs">
-        {["ok", "thumbsup", "thumbsdown", "fist", "five", "blank"].map((label) => {
-          const isCurrent = stableGesture === label;
+        {[
+          "THUMBS_UP",
+          "THUMBS_DOWN",
+          "OPEN_PALM",
+          "CLOSED_FIST",
+          "POINTING",
+          "PEACE_SIGN",
+          "OK_SIGN",
+          "WAVE",
+          "CROSSED_FINGERS",
+          "ONE_FINGER_UP"
+        ].map((label) => {
+          const isCurrent = activeGesture === label;
           return (
             <span
               key={label}
-              className={`px-2.5 py-1 rounded-lg font-medium transition-all ${
+              className={`px-2 py-0.5 rounded-md font-mono text-[10px] uppercase transition-all ${
                 isCurrent
-                  ? "bg-indigo-600 text-white shadow-sm ring-1 ring-indigo-400"
+                  ? "bg-blue-600 text-white shadow-sm ring-1 ring-blue-400 font-bold"
                   : "bg-slate-800/80 text-slate-400"
               }`}
             >
-              {label}
+              {label.replace("_", " ")}
             </span>
           );
         })}

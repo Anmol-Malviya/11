@@ -1,17 +1,12 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f4f7fb;
-  --foreground: #0f172a;
+  --background: #f8fafc;
+  --foreground: #090d16;
   --card: #ffffff;
-  --card-foreground: #0f172a;
+  --card-foreground: #090d16;
   --primary: #2563eb;
-  --primary-hover: #1d4ed8;
   --primary-foreground: #ffffff;
-  --sidebar: #101c38;
-  --sidebar-active: #1e3a8a;
-  --sidebar-text: #94a3b8;
-  --sidebar-text-active: #ffffff;
   --muted: #f1f5f9;
   --muted-foreground: #64748b;
   --border: #e2e8f0;
@@ -27,32 +22,34 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Professional SaaS Card & Panel Tokens */
+/* Professional Card & Panel Tokens */
 .app-card {
   background-color: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: var(--radius);
-  box-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.04), 0 1px 2px -1px rgba(15, 23, 42, 0.03);
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 1px 2px -1px rgba(0, 0, 0, 0.04);
 }
 
 .app-card-interactive {
   background-color: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: var(--radius);
-  box-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.04);
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04);
   transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .app-card-interactive:hover {
   border-color: #cbd5e1;
-  box-shadow: 0 4px 6px -1px rgba(15, 23, 42, 0.06), 0 2px 4px -2px rgba(15, 23, 42, 0.04);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.06), 0 2px 4px -2px rgba(0, 0, 0, 0.04);
 }
 
 /* Subtle clean glass utility */
 .glass-panel {
-  background: rgba(255, 255, 255, 0.98);
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   border: 1px solid #e2e8f0;
-  box-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.04);
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04);
 }
 
 .glass-panel-subtle {
@@ -63,8 +60,8 @@ body {
 
 /* Clean accessible scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;

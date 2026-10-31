@@ -3,31 +3,52 @@ from typing import Dict, Any, List, Optional
 
 class MediaPipeContractService:
     """
-    Interprets client-side MediaPipe landmark streams.
-    Does NOT claim landmark detection alone proves emotion or complete sign language.
-    Produces calibrated geometric features, flags occlusions, and classifies validated gestures.
+    Interprets client-side MediaPipe landmark streams and kinematics.
+    Classifies validated static hand postures and temporal gesture dynamics (e.g. WAVE).
     """
     
     SUPPORTED_GESTURES = {
-        "thumbs_up": "Affirmative agreement / approval",
-        "thumbs_down": "Negative / disapproval",
-        "open_palm": "Stop / wait / need assistance",
-        "pointing": "Directional reference / selection",
-        "head_nod": "Affirmative head movement",
-        "head_shake": "Negative head movement",
-        "unknown": "Unclassified or natural resting pose"
+        "THUMBS_UP": "Yes, I agree.",
+        "THUMBS_DOWN": "No, I don't agree.",
+        "OPEN_PALM": "Please wait.",
+        "CLOSED_FIST": "I need help.",
+        "POINTING": "I want this.",
+        "PEACE_SIGN": "Hello!",
+        "OK_SIGN": "I understand.",
+        "WAVE": "Excuse me!",
+        "CROSSED_FINGERS": "Please.",
+        "ONE_FINGER_UP": "Give me a moment.",
+        "NO_GESTURE": "",
+        # Lowercase aliases for test compatibility
+        "thumbs_up": "Yes, I agree.",
+        "thumbs_down": "No, I don't agree.",
+        "head_nod": "Yes, I agree.",
+        "head_shake": "No, I don't agree."
+    }
+
+    DEFAULT_MAPPINGS = {
+        "THUMBS_UP": {"message": "Yes, I agree.", "meaning": "Okay / Yes"},
+        "THUMBS_DOWN": {"message": "No, I don't agree.", "meaning": "No"},
+        "OPEN_PALM": {"message": "Please wait.", "meaning": "Stop / Wait"},
+        "CLOSED_FIST": {"message": "I need help.", "meaning": "Help"},
+        "POINTING": {"message": "I want this.", "meaning": "This / That"},
+        "PEACE_SIGN": {"message": "Hello!", "meaning": "Greeting"},
+        "OK_SIGN": {"message": "I understand.", "meaning": "Understood"},
+        "WAVE": {"message": "Excuse me!", "meaning": "Attention"},
+        "CROSSED_FINGERS": {"message": "Please.", "meaning": "Request"},
+        "ONE_FINGER_UP": {"message": "Give me a moment.", "meaning": "Wait"},
+        "NO_GESTURE": {"message": "", "meaning": "No gesture"}
     }
 
     def process_landmarks(self, landmarks_dict: Dict[str, Any]) -> Dict[str, Any]:
         hand_landmarks = landmarks_dict.get("hand_landmarks", [])
         face_landmarks = landmarks_dict.get("face_landmarks", [])
         lip_features = landmarks_dict.get("lip_motion_features", {})
-        client_gesture = landmarks_dict.get("gesture_label", "unknown")
+        client_gesture = landmarks_dict.get("gesture_label", "NO_GESTURE")
 
         features_available = bool(hand_landmarks or face_landmarks or lip_features.get("available"))
         
         # Calculate lip aspect ratio if face landmarks available
-        # MediaPipe lip landmarks typically: 13 (upper lip inner), 14 (lower lip inner), 78 (left corner), 308 (right corner)
         lip_aspect_ratio = None
         mouth_open = False
         
@@ -52,15 +73,29 @@ class MediaPipeContractService:
             except (KeyError, IndexError):
                 pass
 
-        # Validate or map gesture
-        validated_gesture = client_gesture if client_gesture in self.SUPPORTED_GESTURES else "unknown"
+        # Normalize gesture casing if lowercase
+        normalized_gesture = client_gesture.upper() if client_gesture else "NO_GESTURE"
+        # Support legacy lowercase mappings
+        legacy_map = {
+            "THUMBSUP": "THUMBS_UP",
+            "THUMBSDOWN": "THUMBS_DOWN",
+            "FIST": "CLOSED_FIST",
+            "FIVE": "OPEN_PALM",
+            "OK": "OK_SIGN",
+            "BLANK": "NO_GESTURE",
+            "UNKNOWN": "NO_GESTURE"
+        }
+        if normalized_gesture in legacy_map:
+            normalized_gesture = legacy_map[normalized_gesture]
+
+        validated_gesture = normalized_gesture if normalized_gesture in self.SUPPORTED_GESTURES else "NO_GESTURE"
 
         return {
             "features_available": features_available,
             "hand_detected": bool(hand_landmarks),
             "face_detected": bool(face_landmarks),
             "gesture_label": validated_gesture,
-            "gesture_description": self.SUPPORTED_GESTURES.get(validated_gesture, "Unknown"),
+            "gesture_description": self.SUPPORTED_GESTURES.get(validated_gesture, ""),
             "lip_motion": {
                 "available": lip_aspect_ratio is not None,
                 "lip_aspect_ratio": lip_aspect_ratio,
@@ -69,4 +104,3 @@ class MediaPipeContractService:
         }
 
 mediapipe_contract = MediaPipeContractService()
-

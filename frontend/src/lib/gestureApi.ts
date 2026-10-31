@@ -163,5 +163,30 @@ export const gestureApi = {
     });
     if (!res.ok) throw new Error("Failed to delete conversation");
   }
-};
+,
 
+  async getGestureMappings(): Promise<Record<string, { message: string; meaning: string }>> {
+    const res = await fetch(`${API_ROOT}/api/gestures/mappings`);
+    if (!res.ok) throw new Error("Failed to load gesture mappings");
+    return res.json();
+  },
+
+  async updateGestureMappings(mappings: Record<string, { message: string; meaning: string }>): Promise<void> {
+    const res = await fetch(`${API_ROOT}/api/gestures/mappings`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(mappings)
+    });
+    if (!res.ok) throw new Error("Failed to update gesture mappings");
+  },
+
+  async speakGestureMessage(text: string, voiceId?: string): Promise<Blob> {
+    const res = await fetch(`${API_ROOT}/api/gestures/speak`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, voice_id: voiceId })
+    });
+    if (!res.ok) throw new Error("Failed to synthesize speech via ElevenLabs");
+    return res.blob();
+  }
+};
