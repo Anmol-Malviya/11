@@ -67,7 +67,14 @@ export class ClientVisionProcessor {
 
   public detectForVideo(videoElement: HTMLVideoElement, timestamp: number): VisionDetectionResult {
     // 1. Guard against unready video or missing recognizer
-    if (!this.recognizer || videoElement.readyState < 2 || videoElement.videoWidth === 0 || videoElement.videoHeight === 0) {
+    if (
+      !this.recognizer ||
+      videoElement.readyState < 2 ||
+      videoElement.paused ||
+      videoElement.ended ||
+      videoElement.videoWidth === 0 ||
+      videoElement.videoHeight === 0
+    ) {
       return {
         featuresAvailable: false,
         handDetected: false,
@@ -78,14 +85,25 @@ export class ClientVisionProcessor {
       };
     }
 
-    // 2. Monotonic timestamp enforcement (MediaPipe requires strictly increasing timestamps for VIDEO mode)
-    const validTimestamp = timestamp <= this.lastProcessedTimestamp 
+    // 2. Monotonic timestamp enforcement (MediaPipe requires strictly increasing integer milliseconds)
+    const intTimestamp = Math.floor(timestamp);
+    const validTimestamp = intTimestamp <= this.lastProcessedTimestamp 
       ? this.lastProcessedTimestamp + 1 
-      : timestamp;
+      : intTimestamp;
     this.lastProcessedTimestamp = validTimestamp;
 
     try {
       const results = this.recognizer.recognizeForVideo(videoElement, validTimestamp);
+      if (!results) {
+        return {
+          featuresAvailable: true,
+          handDetected: false,
+          faceDetected: false,
+          gestureLabel: "unknown",
+          confidence: 0,
+          mouthOpen: false
+        };
+      }
       const gestures = results.gestures;
       const handLandmarks = results.landmarks;
 
