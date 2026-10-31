@@ -17,15 +17,8 @@ export function PhoneCameraModal({
   pairingToken,
   isPhoneConnected,
 }: PhoneCameraModalProps) {
-  const [pairingUrl, setPairingUrl] = useState<string>("");
   const [copied, setCopied] = useState<boolean>(false);
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const url = `${window.location.origin}/remote-camera?token=${pairingToken}`;
-      setPairingUrl(url);
-    }
-  }, [pairingToken]);
+  const pairingUrl = typeof window !== "undefined" && pairingToken ? `${window.location.origin}/remote-camera?token=${pairingToken}` : "";
 
   if (!isOpen) return null;
 

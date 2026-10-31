@@ -11,10 +11,6 @@ export default function QuickPhrasesPage() {
   const [loading, setLoading] = useState(false);
   const [playingId, setPlayingId] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadPhrases();
-  }, []);
-
   const loadPhrases = async () => {
     try {
       const data = await api.getQuickPhrases();
@@ -23,6 +19,10 @@ export default function QuickPhrasesPage() {
       console.error("Error loading phrases:", err);
     }
   };
+
+  useEffect(() => {
+    loadPhrases();
+  }, []);
 
   const handleAddPhrase = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -110,7 +110,7 @@ export default function QuickPhrasesPage() {
                   {phrase.category}
                 </span>
                 <p className="font-semibold text-slate-900 text-sm sm:text-base mt-2 group-hover:text-indigo-600 transition-colors">
-                  "{phrase.text}"
+                  &quot;{phrase.text}&quot;
                 </p>
               </div>
 

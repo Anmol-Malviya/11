@@ -58,7 +58,7 @@ function RemoteCameraClient() {
       }
       setIsStreaming(true);
       setStatusMessage(`Streaming to laptop with token: ${activeToken}`);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Camera access failed:", err);
       setErrorMsg("Camera permission denied. Please allow camera permissions on this device.");
       setIsStreaming(false);
@@ -119,7 +119,7 @@ function RemoteCameraClient() {
   }, [isStreaming, activeToken]);
 
   useEffect(() => {
-    let interval: any = null;
+    let interval: NodeJS.Timeout | null = null;
     if (isStreaming && activeToken) {
       interval = setInterval(() => {
         captureAndSend();

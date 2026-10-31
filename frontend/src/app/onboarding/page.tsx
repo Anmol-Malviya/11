@@ -21,7 +21,7 @@ export default function OnboardingPage() {
       setCamGranted(true);
       // Release stream after permission test
       stream.getTracks().forEach((track) => track.stop());
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.warn("Permission request error:", err);
       // Attempt separate queries
       try {

@@ -45,7 +45,7 @@ export function CameraLandmarkFeed({ onGestureDetected, onLipActivityDetected }:
             setStreamActive(true);
           };
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (!isCancelled) {
           console.warn("Camera access failed or denied:", err);
           setCameraError("Camera unavailable. You can continue with audio or touch response.");

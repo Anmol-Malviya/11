@@ -7,10 +7,6 @@ import { api, EvaluationMetrics } from "@/lib/api";
 export default function EvaluationPage() {
   const [metrics, setMetrics] = useState<EvaluationMetrics | null>(null);
 
-  useEffect(() => {
-    loadMetrics();
-  }, []);
-
   const loadMetrics = async () => {
     try {
       const data = await api.getMetrics();
@@ -19,6 +15,10 @@ export default function EvaluationPage() {
       console.error(err);
     }
   };
+
+  useEffect(() => {
+    loadMetrics();
+  }, []);
 
   return (
     <div className="max-w-4xl mx-auto py-4 sm:py-8 space-y-6">

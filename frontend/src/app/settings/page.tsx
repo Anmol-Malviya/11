@@ -11,10 +11,6 @@ export default function SettingsPage() {
   const [consentId, setConsentId] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState("");
 
-  useEffect(() => {
-    loadVoices();
-  }, []);
-
   const loadVoices = async () => {
     try {
       const data = await api.getVoices();
@@ -23,6 +19,10 @@ export default function SettingsPage() {
       console.error(err);
     }
   };
+
+  useEffect(() => {
+    loadVoices();
+  }, []);
 
   const handleGrantConsent = async () => {
     try {
@@ -96,7 +96,7 @@ export default function SettingsPage() {
         </div>
 
         <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
-          In compliance with ethical AI requirements, cloning the patient's pre-recorded or restored voice requires explicit affirmative consent. Consent may be revoked anytime to immediately block synthesis.
+          In compliance with ethical AI requirements, cloning the patient&apos;s pre-recorded or restored voice requires explicit affirmative consent. Consent may be revoked anytime to immediately block synthesis.
         </p>
 
         <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">

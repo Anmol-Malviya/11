@@ -52,7 +52,7 @@ export default function GestureAssistantPage() {
   // Conversation Partner 2-Way Input
   const [partnerInput, setPartnerInput] = useState<string>("");
   const [isSpeechListening, setIsSpeechListening] = useState<boolean>(false);
-  const speechRecognitionRef = useRef<any>(null);
+  const speechRecognitionRef = useRef<unknown>(null);
 
   // Text-To-Speech
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
@@ -213,7 +213,7 @@ export default function GestureAssistantPage() {
   const toggleSpeechRecognition = () => {
     if (typeof window === "undefined") return;
 
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const SpeechRecognition = (window as unknown as Record<string, unknown>).SpeechRecognition || (window as unknown as Record<string, unknown>).webkitSpeechRecognition;
     if (!SpeechRecognition) {
       alert("Speech recognition is not supported in this browser. Please use Chrome, Edge, or Safari.");
       return;
@@ -221,20 +221,20 @@ export default function GestureAssistantPage() {
 
     if (isSpeechListening) {
       if (speechRecognitionRef.current) {
-        speechRecognitionRef.current.stop();
+        (speechRecognitionRef.current as { stop: () => void }).stop();
       }
       setIsSpeechListening(false);
       return;
     }
 
     try {
-      const recognition = new SpeechRecognition();
+      const recognition = new (SpeechRecognition as new () => { continuous: boolean; interimResults: boolean; lang: string; onstart: () => void; onresult: (e: { results: { [key: number]: { [key: number]: { transcript: string } } } }) => void; onerror: () => void; onend: () => void; start: () => void; stop: () => void })();
       recognition.continuous = false;
       recognition.interimResults = false;
       recognition.lang = "en-US";
 
       recognition.onstart = () => setIsSpeechListening(true);
-      recognition.onresult = (event: any) => {
+      recognition.onresult = (event: { results: { [key: number]: { [key: number]: { transcript: string } } } }) => {
         const transcript = event.results[0][0].transcript;
         setPartnerInput(transcript);
         setIsSpeechListening(false);

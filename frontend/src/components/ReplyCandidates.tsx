@@ -142,7 +142,7 @@ export function ReplyCandidates({
                   </div>
 
                   <p className="text-sm sm:text-base font-semibold text-slate-900 mt-1 leading-snug">
-                    "{cand.text}"
+                    &quot;{cand.text}&quot;
                   </p>
                   <p className="text-[11px] text-slate-500 mt-0.5">{cand.reason}</p>
                 </div>

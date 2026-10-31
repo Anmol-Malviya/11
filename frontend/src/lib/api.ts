@@ -75,7 +75,7 @@ export interface EvaluationMetrics {
   latency_p50_ms: number;
   latency_p95_ms: number;
   target_latency_achieved: boolean;
-  samples: any[];
+  samples: Record<string, unknown>[];
 }
 
 export const api = {

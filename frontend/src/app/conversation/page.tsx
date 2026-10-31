@@ -14,8 +14,18 @@ interface Message {
 }
 
 export default function ConversationPage() {
-  const [sessionId, setSessionId] = useState<string>("sess_demo");
-  const [language, setLanguage] = useState("hi-en");
+  const [sessionId, setSessionId] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      return sessionStorage.getItem("ps16_session_id") || "sess_demo";
+    }
+    return "sess_demo";
+  });
+  const [language, setLanguage] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      return sessionStorage.getItem("ps16_language") || "hi-en";
+    }
+    return "hi-en";
+  });
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "m_init",
@@ -34,17 +44,6 @@ export default function ConversationPage() {
   const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
   const [audioError, setAudioError] = useState("");
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
-
-  // Initialize session from storage
-  useEffect(() => {
-    const savedId = sessionStorage.getItem("ps16_session_id") || "sess_demo";
-    const savedLang = sessionStorage.getItem("ps16_language") || "hi-en";
-    setSessionId(savedId);
-    setLanguage(savedLang);
-
-    // Initial inference based on starting partner message
-    triggerInference("Hello! Would you like some water or tea?", "unknown", false, savedId, savedLang);
-  }, []);
 
   const triggerInference = async (
     transcript: string,
@@ -68,6 +67,12 @@ export default function ConversationPage() {
       console.error("Inference trigger failed:", err);
     }
   };
+
+  // Initial inference based on starting partner message
+  useEffect(() => {
+    triggerInference("Hello! Would you like some water or tea?", "unknown", false, sessionId, language);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handlePartnerSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -134,7 +139,7 @@ export default function ConversationPage() {
         audioPlayerRef.current.src = audioUrl;
         await audioPlayerRef.current.play();
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Failed to confirm or speak:", err);
       setAudioError("Unable to synthesize audio. Check voice permissions or network.");
     } finally {
