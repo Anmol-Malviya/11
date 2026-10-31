@@ -54,13 +54,15 @@ export interface PaginatedMessages {
 }
 
 const getApiHost = () => {
+  // 1. Explicit environment variable override
   if (process.env.NEXT_PUBLIC_API_BASE_URL) {
     return process.env.NEXT_PUBLIC_API_BASE_URL.replace(/\/api\/v1\/?$/, "").replace(/\/api\/?$/, "");
   }
+  // 2. Client-side browser execution: connect directly to backend port 8000
   if (typeof window !== "undefined") {
-    // If running on next.js dev port 3000, backend is typically on 8000
-    if (window.location.port === "3000") {
-      return "http://localhost:8000";
+    // If frontend is running on localhost/127.0.0.1 (any port like 3000, 3001), call backend on :8000
+    if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+      return `http://${window.location.hostname}:8000`;
     }
     return window.location.origin;
   }
