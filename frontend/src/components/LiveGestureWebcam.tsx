@@ -19,7 +19,6 @@ export function LiveGestureWebcam({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const remoteImgRef = useRef<HTMLImageElement | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
 
   const [cameraSource, setCameraSource] = useState<"laptop" | "phone">("laptop");
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
@@ -28,67 +27,59 @@ export function LiveGestureWebcam({
   const [stableGesture, setStableGesture] = useState<string>("blank");
   const [stableConfidence, setStableConfidence] = useState<number>(0);
 
-  // Phone remote camera pairing
+  // Phone remote camera pairing (Token-based)
   const [showQrModal, setShowQrModal] = useState<boolean>(false);
   const [isPhoneConnected, setIsPhoneConnected] = useState<boolean>(false);
-  const [remoteSessionId, setRemoteSessionId] = useState<string>("");
+  const [pairingToken, setPairingToken] = useState<string>("");
   const [remoteFrameSrc, setRemoteFrameSrc] = useState<string | null>(null);
 
   // Temporal smoothing queue (last 5 detections)
   const historyRef = useRef<{ gesture: string; confidence: number; timestamp: number }[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
 
-  // Generate pairing session id on mount
+  // Generate 6-digit alphanumeric token on mount
   useEffect(() => {
-    const id = "sess_" + Math.random().toString(36).substring(2, 10);
-    setRemoteSessionId(id);
+    const token = Math.random().toString(36).substring(2, 8).toUpperCase();
+    setPairingToken(token);
+    
+    // Register laptop session
+    fetch(`/api/remote-camera/session/${token}/register?role=laptop`, { method: "POST" }).catch(() => {});
   }, []);
 
-  // Connect WebSocket to receive remote phone frames
+  // Poll for phone frames using HTTP token endpoint (works across 4G/5G, hotspots, and any network)
   useEffect(() => {
-    if (!remoteSessionId) return;
+    if (!pairingToken) return;
 
-    let wsUrl = "";
-    if (typeof window !== "undefined") {
-      const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-      if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
-        wsUrl = `${proto}//${window.location.hostname}:8000/ws/remote-camera/${remoteSessionId}`;
-      } else {
-        wsUrl = `${proto}//${window.location.host}/ws/remote-camera/${remoteSessionId}`;
-      }
-    }
-
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ role: "laptop" }));
-    };
-
-    ws.onmessage = (event) => {
+    let isPolling = true;
+    const pollInterval = setInterval(async () => {
+      if (!isPolling) return;
       try {
-        const data = JSON.parse(event.data);
-        if (data.type === "PHONE_CONNECTED") {
-          setIsPhoneConnected(true);
-          setCameraSource("phone");
-          // Stop laptop webcam if active
-          stopLaptopCamera();
-        } else if (data.type === "PHONE_DISCONNECTED") {
-          setIsPhoneConnected(false);
-          setRemoteFrameSrc(null);
-        } else if (data.type === "REMOTE_FRAME") {
-          setRemoteFrameSrc(data.image);
-          if (data.prediction) {
-            handlePredictionResult(data.prediction);
+        const res = await fetch(`/api/remote-camera/session/${pairingToken}/poll`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.phone_connected) {
+            setIsPhoneConnected(true);
+            setCameraSource("phone");
+            stopLaptopCamera();
+
+            if (data.image) {
+              setRemoteFrameSrc(data.image);
+            }
+            if (data.prediction) {
+              handlePredictionResult(data.prediction);
+            }
+          } else {
+            setIsPhoneConnected(false);
           }
         }
-      } catch (e) {}
-    };
+      } catch (err) {}
+    }, 250); // Poll 4 times/sec
 
     return () => {
-      ws.close();
+      isPolling = false;
+      clearInterval(pollInterval);
     };
-  }, [remoteSessionId]);
+  }, [pairingToken]);
 
   const handlePredictionResult = (pred: GesturePrediction) => {
     if (phraseMapping && phraseMapping[pred.predicted_gesture]) {
@@ -237,7 +228,7 @@ export function LiveGestureWebcam({
           }`} />
           <span className="text-sm font-semibold tracking-wide">
             {cameraSource === "phone" && isPhoneConnected
-              ? "Phone Camera Stream"
+              ? "Phone Camera (Token Active)"
               : isCameraActive
               ? "Laptop Webcam Feed"
               : "Camera Standby"}
@@ -249,14 +240,14 @@ export function LiveGestureWebcam({
 
         {/* Action Controls */}
         <div className="flex items-center space-x-2">
-          {/* QR Code Phone Camera Button */}
+          {/* QR Code Phone Camera Button with Token */}
           <button
             onClick={() => setShowQrModal(true)}
             className="px-3 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 text-xs font-semibold flex items-center space-x-1.5 transition active:scale-95"
-            title="Scan QR to use your phone camera instead of laptop"
+            title="Scan QR to pair phone camera with token"
           >
             <QrCode className="w-3.5 h-3.5 text-indigo-400" />
-            <span>{isPhoneConnected ? "Phone Paired ✓" : "Use Phone Camera (QR)"}</span>
+            <span>{isPhoneConnected ? `Phone Paired (${pairingToken}) ✓` : "Use Phone Camera (Token QR)"}</span>
           </button>
 
           {cameraSource === "laptop" && !isCameraActive ? (
@@ -355,7 +346,7 @@ export function LiveGestureWebcam({
                 className="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-xs font-semibold text-indigo-300 flex items-center space-x-1.5 transition"
               >
                 <Smartphone className="w-3.5 h-3.5" />
-                <span>Use Phone Camera (QR)</span>
+                <span>Use Phone Camera (Token QR)</span>
               </button>
             </div>
           </div>
@@ -407,7 +398,7 @@ export function LiveGestureWebcam({
             {cameraSource === "phone" && isPhoneConnected && (
               <div className="bg-emerald-950/80 border border-emerald-700/80 text-emerald-300 px-2.5 py-1 rounded-lg text-[11px] flex items-center space-x-1.5">
                 <div className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                <span>Phone Paired</span>
+                <span>Token: {pairingToken}</span>
               </div>
             )}
           </div>
@@ -437,7 +428,7 @@ export function LiveGestureWebcam({
       <PhoneCameraModal
         isOpen={showQrModal}
         onClose={() => setShowQrModal(false)}
-        pairingSessionId={remoteSessionId}
+        pairingToken={pairingToken}
         isPhoneConnected={isPhoneConnected}
       />
     </div>

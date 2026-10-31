@@ -2,19 +2,19 @@
 
 import React, { useState, useEffect } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { Smartphone, X, Copy, Check, ExternalLink, Wifi } from "lucide-react";
+import { Smartphone, X, Copy, Check, Key, Globe, ShieldCheck } from "lucide-react";
 
 interface PhoneCameraModalProps {
   isOpen: boolean;
   onClose: () => void;
-  pairingSessionId: string;
+  pairingToken: string;
   isPhoneConnected: boolean;
 }
 
 export function PhoneCameraModal({
   isOpen,
   onClose,
-  pairingSessionId,
+  pairingToken,
   isPhoneConnected,
 }: PhoneCameraModalProps) {
   const [pairingUrl, setPairingUrl] = useState<string>("");
@@ -22,10 +22,10 @@ export function PhoneCameraModal({
 
   useEffect(() => {
     if (typeof window !== "undefined") {
-      const url = `${window.location.origin}/remote-camera?session=${pairingSessionId}`;
+      const url = `${window.location.origin}/remote-camera?token=${pairingToken}`;
       setPairingUrl(url);
     }
-  }, [pairingSessionId]);
+  }, [pairingToken]);
 
   if (!isOpen) return null;
 
@@ -54,19 +54,33 @@ export function PhoneCameraModal({
             <Smartphone className="w-5 h-5" />
           </div>
           <div>
-            <h3 className="font-bold text-base text-white">Use Phone as Camera</h3>
+            <h3 className="font-bold text-base text-white">Token-Based Phone Camera</h3>
             <p className="text-xs text-slate-400">
-              Scan with your phone to use its camera instead of this laptop.
+              Works anywhere on Mobile Data or any Internet connection (No shared Wi-Fi needed).
             </p>
           </div>
         </div>
 
+        {/* 6-Digit Pairing Token Box */}
+        <div className="bg-indigo-950/40 border border-indigo-500/40 rounded-2xl p-3.5 flex items-center justify-between">
+          <div className="flex items-center space-x-2.5">
+            <Key className="w-4 h-4 text-indigo-400" />
+            <div>
+              <span className="text-[10px] text-indigo-300 block font-mono uppercase tracking-wider">Pairing Token</span>
+              <span className="font-mono text-xl font-black text-white tracking-widest">{pairingToken}</span>
+            </div>
+          </div>
+          <span className="text-[10px] px-2.5 py-1 rounded-full bg-indigo-500/20 text-indigo-300 font-medium">
+            Cloud Sync
+          </span>
+        </div>
+
         {/* QR Code Card */}
-        <div className="bg-white p-5 rounded-2xl flex flex-col items-center justify-center mx-auto shadow-inner w-56 h-56">
+        <div className="bg-white p-4 rounded-2xl flex flex-col items-center justify-center mx-auto shadow-inner w-56 h-56">
           {pairingUrl ? (
             <QRCodeSVG
               value={pairingUrl}
-              size={180}
+              size={185}
               level="H"
               includeMargin={false}
             />
@@ -84,16 +98,16 @@ export function PhoneCameraModal({
           <div className="flex items-center space-x-2">
             <div className={`w-2.5 h-2.5 rounded-full ${isPhoneConnected ? "bg-emerald-400 animate-pulse" : "bg-amber-400 animate-ping"}`} />
             <span className="font-medium">
-              {isPhoneConnected ? "Phone Connected & Streaming!" : "Waiting for phone scan..."}
+              {isPhoneConnected ? "Phone Camera Connected & Live!" : "Waiting for phone to scan or enter token..."}
             </span>
           </div>
-          <Wifi className="w-4 h-4 opacity-70" />
+          <Globe className="w-4 h-4 opacity-70" />
         </div>
 
         {/* Share link option */}
         <div className="space-y-2">
           <span className="text-[11px] text-slate-400 font-medium block">
-            Or open this link on your phone browser:
+            Or open URL directly on phone browser:
           </span>
           <div className="flex items-center space-x-2">
             <input
@@ -112,17 +126,16 @@ export function PhoneCameraModal({
           </div>
         </div>
 
-        {/* Close / Done */}
+        {/* Close Button */}
         <div className="pt-1">
           <button
             onClick={onClose}
             className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 font-semibold text-xs text-slate-200 transition"
           >
-            {isPhoneConnected ? "Back to Assistant" : "Close"}
+            {isPhoneConnected ? "Use Live Phone Stream" : "Close"}
           </button>
         </div>
       </div>
     </div>
   );
 }
-

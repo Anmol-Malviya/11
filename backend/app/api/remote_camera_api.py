@@ -1,79 +1,75 @@
+import time
 from typing import Dict, Any, Optional
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-import json
+from fastapi import APIRouter, HTTPException, Query, status
+from pydantic import BaseModel
 import logging
 
 logger = logging.getLogger("ps16.remote_stream")
-router = APIRouter(tags=["Remote Camera"])
+router = APIRouter(tags=["Remote Camera Token Store"])
 
-# In-memory session registry for paired phone and laptop
-class RemoteCameraHub:
-    def __init__(self):
-        self.laptop_connections: Dict[str, WebSocket] = {}
-        self.phone_connections: Dict[str, WebSocket] = {}
+# In-memory store for remote frames & pairing tokens
+# { token: { "laptop_active": True, "phone_active": True, "last_frame": b64, "prediction": dict, "updated_at": float } }
+token_sessions: Dict[str, Dict[str, Any]] = {}
 
-    async def register_laptop(self, session_id: str, websocket: WebSocket):
-        self.laptop_connections[session_id] = websocket
+class FrameUploadRequest(BaseModel):
+    image: str
+    prediction: Optional[Dict[str, Any]] = None
 
-    async def register_phone(self, session_id: str, websocket: WebSocket):
-        self.phone_connections[session_id] = websocket
+@router.post("/api/remote-camera/session/{token}/register")
+async def register_session(token: str, role: str = Query("laptop")):
+    now = time.time()
+    if token not in token_sessions:
+        token_sessions[token] = {
+            "created_at": now,
+            "laptop_active": False,
+            "phone_active": False,
+            "last_frame": None,
+            "prediction": None,
+            "updated_at": now
+        }
+    
+    if role == "laptop":
+        token_sessions[token]["laptop_active"] = True
+    elif role == "phone":
+        token_sessions[token]["phone_active"] = True
+    
+    token_sessions[token]["updated_at"] = now
+    return {"status": "ok", "token": token, "role": role}
 
-    def unregister_laptop(self, session_id: str):
-        if session_id in self.laptop_connections:
-            del self.laptop_connections[session_id]
+@router.post("/api/remote-camera/session/{token}/frame")
+async def post_frame(token: str, body: FrameUploadRequest):
+    if token not in token_sessions:
+        token_sessions[token] = {
+            "created_at": time.time(),
+            "laptop_active": False,
+            "phone_active": True,
+            "last_frame": None,
+            "prediction": None,
+            "updated_at": time.time()
+        }
+    
+    token_sessions[token]["last_frame"] = body.image
+    token_sessions[token]["prediction"] = body.prediction
+    token_sessions[token]["phone_active"] = True
+    token_sessions[token]["updated_at"] = time.time()
+    return {"status": "received"}
 
-    def unregister_phone(self, session_id: str):
-        if session_id in self.phone_connections:
-            del self.phone_connections[session_id]
+@router.get("/api/remote-camera/session/{token}/poll")
+async def poll_frame(token: str):
+    sess = token_sessions.get(token)
+    if not sess:
+        return {
+            "phone_connected": False,
+            "image": None,
+            "prediction": None
+        }
 
-    async def send_to_laptop(self, session_id: str, data: dict):
-        ws = self.laptop_connections.get(session_id)
-        if ws:
-            try:
-                await ws.send_json(data)
-            except Exception:
-                pass
+    now = time.time()
+    # If phone posted within last 6 seconds, consider phone connected
+    phone_alive = sess.get("phone_active", False) and (now - sess.get("updated_at", 0) < 6.0)
 
-hub = RemoteCameraHub()
-
-@router.websocket("/ws/remote-camera/{session_id}")
-async def remote_camera_ws(websocket: WebSocket, session_id: str):
-    await websocket.accept()
-    role = None
-    try:
-        init_data = await websocket.receive_json()
-        role = init_data.get("role", "phone") # 'phone' or 'laptop'
-
-        if role == "laptop":
-            await hub.register_laptop(session_id, websocket)
-            await websocket.send_json({"type": "STATUS", "message": "Laptop listening for mobile camera frames."})
-        else:
-            await hub.register_phone(session_id, websocket)
-            await websocket.send_json({"type": "STATUS", "message": "Phone camera paired successfully!"})
-            # Notify laptop that phone connected
-            await hub.send_to_laptop(session_id, {"type": "PHONE_CONNECTED"})
-
-        while True:
-            msg = await websocket.receive_json()
-            msg_type = msg.get("type")
-
-            if msg_type == "FRAME":
-                # Forward camera frame and prediction from phone to paired laptop
-                await hub.send_to_laptop(session_id, {
-                    "type": "REMOTE_FRAME",
-                    "image": msg.get("image"),
-                    "prediction": msg.get("prediction")
-                })
-            elif msg_type == "PING":
-                await websocket.send_json({"type": "PONG"})
-    except WebSocketDisconnect:
-        pass
-    except Exception as e:
-        logger.warning(f"Remote camera websocket error: {e}")
-    finally:
-        if role == "laptop":
-            hub.unregister_laptop(session_id)
-        else:
-            hub.unregister_phone(session_id)
-            await hub.send_to_laptop(session_id, {"type": "PHONE_DISCONNECTED"})
-
+    return {
+        "phone_connected": phone_alive,
+        "image": sess.get("last_frame"),
+        "prediction": sess.get("prediction")
+    }
