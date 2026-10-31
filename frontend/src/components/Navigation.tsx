@@ -9,6 +9,7 @@ export function Navigation() {
   const pathname = usePathname();
 
   const navItems = [
+    { href: "/gestures", label: "Gesture Assistant", icon: Sparkles },
     { href: "/conversation", label: "Live Assist", icon: MessageSquare },
     { href: "/phrases", label: "Quick Phrases", icon: ThumbsUp },
     { href: "/evaluation", label: "Telemetry", icon: BarChart2 },

@@ -20,18 +20,18 @@ export default function Home() {
 
         <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4 w-full">
           <Link
-            href="/conversation"
+            href="/gestures"
             className="w-full sm:w-auto inline-flex items-center justify-center space-x-2 px-6 py-3.5 rounded-2xl bg-gradient-to-r from-indigo-600 to-sky-600 hover:from-indigo-700 hover:to-sky-700 font-semibold text-white text-base shadow-sm shadow-indigo-200 transition-all active:scale-98"
           >
             <Sparkles className="w-4 h-4" />
-            <span>Open Live Assistant</span>
+            <span>Gesture Live Assistant</span>
             <ArrowRight className="w-4 h-4 ml-1" />
           </Link>
           <Link
-            href="/phrases"
+            href="/conversation"
             className="w-full sm:w-auto inline-flex items-center justify-center space-x-2 px-6 py-3.5 rounded-2xl bg-white hover:bg-slate-50 font-medium text-slate-700 text-base border border-slate-200/90 shadow-xs transition-all"
           >
-            <span>Quick Phrases</span>
+            <span>Multimodal Live Chat</span>
           </Link>
         </div>
       </div>

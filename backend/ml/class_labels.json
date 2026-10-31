@@ -1,0 +1,41 @@
+{
+  "classes": [
+    "blank",
+    "ok",
+    "thumbsup",
+    "thumbsdown",
+    "fist",
+    "five"
+  ],
+  "label_to_index": {
+    "blank": 0,
+    "ok": 1,
+    "thumbsup": 2,
+    "thumbsdown": 3,
+    "fist": 4,
+    "five": 5
+  },
+  "index_to_label": {
+    "0": "blank",
+    "1": "ok",
+    "2": "thumbsup",
+    "3": "thumbsdown",
+    "4": "fist",
+    "5": "five"
+  },
+  "default_phrase_mapping": {
+    "ok": "Okay",
+    "thumbsup": "Yes, I agree",
+    "thumbsdown": "No, I disagree",
+    "fist": "I need assistance",
+    "five": "Hello",
+    "blank": ""
+  },
+  "input_dimensions": {
+    "height": 100,
+    "width": 120,
+    "channels": 1
+  },
+  "color_mode": "grayscale"
+}
+
