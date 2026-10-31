@@ -171,20 +171,28 @@ export function LiveGestureWebcam({
     setIsCameraActive(false);
   };
 
-  // Capture single frame from laptop webcam
+  // Capture single frame from laptop webcam: extracts centered ROI corresponding to the green viewfinder box
   const captureAndPredict = useCallback(async () => {
     if (cameraSource !== "laptop" || !videoRef.current || !canvasRef.current || isProcessing) return;
     const video = videoRef.current;
-    if (video.videoWidth === 0 || video.videoHeight === 0) return;
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    if (vw === 0 || vh === 0) return;
 
     const canvas = canvasRef.current;
-    canvas.width = 320;
+    // Extract centered square ROI matching viewfinder box (50% of min dimension)
+    const roiSize = Math.floor(Math.min(vw, vh) * 0.50);
+    const sx = Math.floor((vw - roiSize) / 2);
+    const sy = Math.floor((vh - roiSize) / 2);
+
+    canvas.width = 240;
     canvas.height = 240;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const base64Data = canvas.toDataURL("image/jpeg", 0.7);
+    // Draw the cropped ROI directly onto the canvas
+    ctx.drawImage(video, sx, sy, roiSize, roiSize, 0, 0, canvas.width, canvas.height);
+    const base64Data = canvas.toDataURL("image/jpeg", 0.75);
 
     setIsProcessing(true);
     try {
@@ -199,7 +207,7 @@ export function LiveGestureWebcam({
 
   // Continuous loop for laptop webcam
   useEffect(() => {
-    let intervalId: any = null;
+    let intervalId: NodeJS.Timeout | null = null;
     if (isCameraActive && cameraSource === "laptop") {
       intervalId = setInterval(() => {
         captureAndPredict();

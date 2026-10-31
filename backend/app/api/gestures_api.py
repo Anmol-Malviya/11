@@ -102,11 +102,11 @@ async def predict_gesture(
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Image decoding failed: {str(e)}")
 
-    processed_tensor = preprocess_frame_for_gesture(raw_image)
+    processed_tensor, hand_present, geo_features = preprocess_frame_for_gesture(raw_image, return_details=True)
 
     # Model inference
     model = get_gesture_model()
-    pred_label, confidence, probs = model.predict(processed_tensor)
+    pred_label, confidence, probs = model.predict(processed_tensor, hand_present=hand_present, geo_features=geo_features)
     mapped_phrase = model.get_phrase_for_gesture(pred_label)
 
     is_reliable = confidence >= threshold and pred_label != "blank"

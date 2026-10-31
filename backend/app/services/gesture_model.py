@@ -53,21 +53,7 @@ class GestureCNNModel:
                 logger.warning(f"Could not read {norm_path}: {e}")
 
     def _load_model(self):
-        # 1. Try Keras (.keras or .h5)
-        keras_path = self.model_path or os.path.join(os.path.dirname(__file__), "..", "..", "ml", "model", "hand_gesture_recognition.keras")
-        h5_path = os.path.join(os.path.dirname(__file__), "..", "..", "ml", "model", "hand_gesture_recognition.h5")
-        for path in [keras_path, h5_path]:
-            if os.path.exists(path):
-                try:
-                    import keras
-                    self.model = keras.models.load_model(path)
-                    self.backend_type = "keras"
-                    logger.info(f"Loaded Keras model from {path}")
-                    return
-                except Exception as e:
-                    logger.warning(f"Could not load Keras model at {path}: {e}")
-
-        # 2. Try PyTorch native model (.pth) matching exact CNN layer definition
+        # 1. Try PyTorch native model (.pth) matching exact CNN layer definition
         pth_path = os.path.join(os.path.dirname(__file__), "..", "..", "ml", "model", "gesture_cnn_weights.pth")
         if os.path.exists(pth_path):
             try:
@@ -111,20 +97,45 @@ class GestureCNNModel:
             except Exception as e:
                 logger.warning(f"Could not load PyTorch weights: {e}")
 
+        # 2. Try Keras (.keras or .h5)
+        keras_path = self.model_path or os.path.join(os.path.dirname(__file__), "..", "..", "ml", "model", "hand_gesture_recognition.keras")
+        h5_path = os.path.join(os.path.dirname(__file__), "..", "..", "ml", "model", "hand_gesture_recognition.h5")
+        for path in [keras_path, h5_path]:
+            if os.path.exists(path):
+                try:
+                    import keras
+                    self.model = keras.models.load_model(path)
+                    self.backend_type = "keras"
+                    logger.info(f"Loaded Keras model from {path}")
+                    return
+                except Exception as e:
+                    logger.warning(f"Could not load Keras model at {path}: {e}")
+
         # 3. Fallback
         self.backend_type = "mock"
         logger.warning("Running with calibrated gesture inference simulator.")
 
-    def predict(self, preprocessed_image: np.ndarray) -> Tuple[str, float, Dict[str, float]]:
+    def predict(
+        self,
+        preprocessed_image: np.ndarray,
+        hand_present: bool = True,
+        geo_features: Optional[Dict[str, Any]] = None
+    ) -> Tuple[str, float, Dict[str, float]]:
         """
-        Input: preprocessed_image of shape (1, 100, 120, 1)
+        Input: preprocessed_image of shape (1, 100, 120, 1) with values in [0.0, 255.0]
         """
+        # If no hand contour was detected inside the ROI, immediately return blank
+        if not hand_present:
+            probs_dict = {c: 0.0 for c in self.classes}
+            probs_dict["blank"] = 1.0
+            return "blank", 1.0, probs_dict
+
         if self.backend_type == "keras":
             probs = self.model.predict(preprocessed_image, verbose=0)[0]
         elif self.backend_type == "pytorch_cnn":
             import torch
-            # (1, 100, 120, 1) -> (1, 1, 100, 120)
-            img_tensor = torch.from_numpy(preprocessed_image).permute(0, 3, 1, 2).float() / 255.0
+            # (1, 100, 120, 1) -> (1, 1, 100, 120), raw unnormalized [0..255] tensor matches training
+            img_tensor = torch.from_numpy(preprocessed_image).permute(0, 3, 1, 2).float()
             with torch.no_grad():
                 out = self.model(img_tensor)
                 probs = out[0].numpy()
@@ -132,6 +143,25 @@ class GestureCNNModel:
             probs = self._simulate_inference(preprocessed_image)
 
         probs = np.array(probs, dtype=float)
+
+        # Multi-cue geometric refinement:
+        # If hand geometry strongly indicates a specific gesture, blend with CNN probabilities
+        if geo_features:
+            defects = geo_features.get("deep_defects", 0)
+            circularity = geo_features.get("circularity", 0.0)
+            aspect_ratio = geo_features.get("aspect_ratio", 1.0)
+
+            # Five: multiple deep finger valleys (3-4 defects) + large contour area
+            if defects >= 3:
+                probs[self.classes.index("five")] += 0.8
+            # Fist: high circularity, no deep finger defects (0 defects)
+            elif defects == 0 and circularity > 0.45:
+                probs[self.classes.index("fist")] += 0.8
+            # Thumbs Up / Down: high aspect ratio (vertical) with 1 defect
+            elif aspect_ratio > 1.2 and defects <= 1:
+                # If upper half has thumb vs lower half
+                probs[self.classes.index("thumbsup")] += 0.4
+
         total = np.sum(probs)
         if total > 0:
             probs = probs / total
