@@ -176,25 +176,40 @@ Do NOT include markdown formatting or backticks. Return raw JSON array only."""
         lip_words = lip_words or []
         gesture_upper = gesture.upper()
 
-        # Multimodal Fusion 1: Lip reading + Gesture Alignment
-        # Example: Partner "Would you like water or tea?", Lip "water", Gesture BOTH_THUMBS_UP
+        # Multimodal Fusion 1: Lip reading + Gesture + Dialogue Context Alignment
         if lip_words and lip_status == "speaking":
-            top_word = lip_words[0].lower()
-            if "water" in top_word or "paani" in top_word:
+            # Search across all recognized candidate viseme words
+            all_lip_text = " ".join(lip_words).lower()
+            
+            if "water" in all_lip_text or "paani" in all_lip_text or "water" in transcript_lower:
                 if gesture_upper in ["BOTH_THUMBS_UP", "THUMBS_UP"]:
                     if language == "hi":
-                        cands.append(CandidateReply(candidate_id="cand_1", text="हाँ, मुझे पानी चाहिए। धन्यवाद।", reason=f"होठों से '{top_word}' और दोनों अँगूठे ऊपर (सहमति) से प्रमाणित।", confidence=0.96))
+                        cands.append(CandidateReply(candidate_id="cand_1", text="हाँ, मुझे पानी चाहिए। धन्यवाद।", reason="होठों के दृश्य विश्लेषण और दोनों अँगूठे ऊपर (सहमति) से प्रमाणित।", confidence=0.96))
                         cands.append(CandidateReply(candidate_id="cand_2", text="कृपया थोड़ा पानी दे दीजिए।", reason="प्रमाणित दृश्य वाक् पहचान।", confidence=0.88))
                     elif language == "hi-en":
-                        cands.append(CandidateReply(candidate_id="cand_1", text="Yes, please. I would like some water.", reason=f"Fused lip prediction '{top_word}' + {gesture_upper}.", confidence=0.97))
+                        cands.append(CandidateReply(candidate_id="cand_1", text="Yes, please. I would like some water.", reason=f"Fused lip prediction + {gesture_upper}.", confidence=0.97))
                         cands.append(CandidateReply(candidate_id="cand_2", text="Haan, please paani de dijiye.", reason="Visual speech + affirmative gesture.", confidence=0.89))
                     else:
-                        cands.append(CandidateReply(candidate_id="cand_1", text="Yes, I would like water, please.", reason=f"Multimodal match: lip reading '{top_word}' + {gesture_upper}.", confidence=0.98))
+                        cands.append(CandidateReply(candidate_id="cand_1", text="Yes, I would like water, please.", reason=f"Multimodal match: lip reading + {gesture_upper}.", confidence=0.98))
                         cands.append(CandidateReply(candidate_id="cand_2", text="Water please, thank you.", reason="Direct affirmative response.", confidence=0.90))
                     return cands
                 elif gesture_upper in ["BOTH_THUMBS_DOWN", "THUMBS_DOWN"]:
-                    cands.append(CandidateReply(candidate_id="cand_1", text="No water for me, thank you.", reason=f"Lip detected '{top_word}' but negative gesture {gesture_upper}.", confidence=0.94))
+                    cands.append(CandidateReply(candidate_id="cand_1", text="No water for me, thank you.", reason=f"Lip detected inquiry but negative gesture {gesture_upper}.", confidence=0.94))
                     cands.append(CandidateReply(candidate_id="cand_2", text="Not thirsty right now.", reason="Negative gesture alignment.", confidence=0.85))
+                    return cands
+
+            if "help" in all_lip_text or "madad" in all_lip_text or "pain" in all_lip_text:
+                if language == "hi":
+                    cands.append(CandidateReply(candidate_id="cand_1", text="मुझे मदद की आवश्यकता है। कृपया सहायता करें।", reason="होठों के दृश्य विश्लेषण से मदद का संकेत।", confidence=0.95))
+                elif language == "hi-en":
+                    cands.append(CandidateReply(candidate_id="cand_1", text="I need help right now, please.", reason="Visual speech recognition detected help request.", confidence=0.95))
+                else:
+                    cands.append(CandidateReply(candidate_id="cand_1", text="I need help, please assist me.", reason="Visual speech recognition detected help request.", confidence=0.96))
+                return cands
+
+            if "yes" in all_lip_text or "haan" in all_lip_text:
+                if gesture_upper in ["BOTH_THUMBS_UP", "THUMBS_UP"]:
+                    cands.append(CandidateReply(candidate_id="cand_1", text="Yes, absolutely agree.", reason="Affirmative lip articulation + thumbs up.", confidence=0.96))
                     return cands
 
         # Multimodal Fusion 2: Custom Two-Hand Gestures

@@ -44,3 +44,4 @@ async def test_two_hand_gestures_all_six():
         cand = res["candidates"][0]
         assert cand.confidence >= 0.90
         assert gesture in cand.reason
+
