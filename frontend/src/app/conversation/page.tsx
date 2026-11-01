@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { 
+  Layers,
   Volume2, 
   RefreshCw, 
   Send, 
@@ -305,21 +306,26 @@ export default function ConversationPage() {
 
   return (
     <div className="space-y-6">
-      {/* Session Header Card */}
-      <div className="app-card p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center space-x-2">
-            <h1 className="text-lg font-bold text-slate-900 tracking-tight">
-              Live Assistive Workspace
-            </h1>
-            <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-medium">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span>Active</span>
-            </span>
+      {/* 2.5D Session Header Card */}
+      <div className="panel-25d p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="flex items-center space-x-3.5">
+          <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-200/80 flex items-center justify-center text-indigo-700 shadow-xs">
+            <Layers className="w-5 h-5 text-indigo-700" />
           </div>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Real-time multimodal speech context and landmark fusion
-          </p>
+          <div>
+            <div className="flex items-center space-x-2">
+              <h1 className="text-lg font-extrabold text-slate-900 tracking-tight">
+                Multimodal Assistive Workspace
+              </h1>
+              <span className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-bold">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span>Live Feed Active</span>
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Intelligent real-time fusion of lip articulation, dual-hand gestures, and dialogue context
+            </p>
+          </div>
         </div>
 
         <div className="flex items-center space-x-2 w-full sm:w-auto justify-between sm:justify-end">
@@ -329,7 +335,7 @@ export default function ConversationPage() {
               setLanguage(e.target.value);
               sessionStorage.setItem("ps16_language", e.target.value);
             }}
-            className="text-xs font-medium bg-white border border-slate-200 text-slate-700 rounded-lg px-3 py-1.5 focus:outline-none focus:border-blue-500"
+            className="text-xs font-semibold bg-white border border-slate-200 text-slate-700 rounded-xl px-3 py-2 shadow-2xs focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
           >
             <option value="hi-en">Code-mixed (Hindi + English)</option>
             <option value="en">English (US/UK)</option>
@@ -344,10 +350,10 @@ export default function ConversationPage() {
                 lipActive
               )
             }
-            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium transition-colors"
+            className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-800 text-xs font-bold transition-all shadow-2xs border border-indigo-200/80 active:scale-95"
           >
             <RefreshCw className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Refresh Candidates</span>
+            <span className="hidden sm:inline">Refresh Intent</span>
           </button>
         </div>
       </div>
@@ -363,7 +369,7 @@ export default function ConversationPage() {
           />
 
           {/* Dialogue Thread */}
-          <div className="app-card p-4 space-y-3 flex flex-col h-[340px]">
+          <div className="panel-25d p-4 space-y-3 flex flex-col h-[340px]">
             <div className="flex items-center justify-between text-xs font-semibold text-slate-700 border-b border-slate-100 pb-2.5">
               <span className="flex items-center space-x-1.5">
                 <MessageSquare className="w-4 h-4 text-blue-600" />
@@ -443,7 +449,7 @@ export default function ConversationPage() {
 
         {/* Right Column: Suggested Candidate Responses */}
         <div className="lg:col-span-7 space-y-4">
-          <div className="app-card p-5 sm:p-6 space-y-4">
+          <div className="panel-25d p-5 sm:p-6 space-y-4">
             {audioError && (
               <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg text-xs flex items-center space-x-2">
                 <AlertCircle className="w-4 h-4 flex-shrink-0 text-amber-600" />
